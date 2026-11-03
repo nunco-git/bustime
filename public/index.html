@@ -621,7 +621,7 @@ function renderAlertUi() {
 /* ================= 지도에서 정류장 찾기 ================= */
 // 네이버 지도를 쓰려면 네이버 클라우드 플랫폼(NCP) Maps 'Client ID'(ncpKeyId)를 여기에 넣습니다.
 // 비어 있으면 오픈스트리트맵(키 필요 없음)으로 동작합니다.
-const NAVER_KEY = "";
+const NAVER_KEY = "4yx15kli1t";
 const BUYEO = [36.2757, 126.9097];
 let E = null, enginePromise = null;     // E: 지금 쓰는 지도 엔진 (naver 또는 leaflet)
 
@@ -688,7 +688,7 @@ function getEngine() {
           $("mapMsg").className = "sub err";
           $("mapMsg").textContent = "네이버 지도 인증에 실패했습니다. Client ID와 '웹 서비스 URL' 등록을 확인해 주세요.";
         };
-        await loadScript("https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=" + encodeURIComponent(NAVER_KEY));
+        await loadScript("https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=" + encodeURIComponent(NAVER_KEY) + "&ncpClientId=" + encodeURIComponent(NAVER_KEY));
         if (window.naver && window.naver.maps) return naverEngine();
       } catch (e) {}
     }
@@ -1086,7 +1086,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v18 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v19 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
