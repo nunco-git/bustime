@@ -11,6 +11,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +33,17 @@ jobs:
       - name: Build debug APK
         working-directory: android
         run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Publish APK to Releases (latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk bustime.apk
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest bustime.apk \
+            --target "${{ github.sha }}" \
+            --title "버스 도착정보 APK (최신)" \
+            --notes "최신 빌드입니다. bustime.apk를 내려받아 설치하세요."
 
       - uses: actions/upload-artifact@v4
         with:
