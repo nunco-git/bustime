@@ -131,7 +131,8 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
 
   <div class="card">
     <div class="row">
-      <select id="city"></select>
+      <select id="prov" aria-label="광역시·도"></select>
+      <select id="city" aria-label="시·군·구"></select>
     </div>
     <div class="row" style="margin-top:8px">
       <input id="q" placeholder="정류장 이름 또는 번호">
@@ -328,14 +329,36 @@ function renderStops() {
   }).join("");
 }
 
+// 도시코드 앞 2자리 = 광역시·도
+const PROVS = { "11": "서울특별시", "21": "부산광역시", "22": "대구광역시", "23": "인천광역시", "24": "광주광역시",
+  "25": "대전광역시", "26": "울산광역시", "29": "세종특별자치시", "31": "경기도", "32": "강원특별자치도",
+  "33": "충청북도", "34": "충청남도", "35": "전북특별자치도", "36": "전라남도", "37": "경상북도",
+  "38": "경상남도", "39": "제주특별자치도" };
+let cityList = [];
+
+function fillCities(keepCode) {
+  const pv = $("prov").value;
+  const list = cityList.filter(c => c.prov === pv);
+  $("city").innerHTML = list.map(c => `<option value="${c.code}">${c.name}</option>`).join("");
+  if (keepCode && list.some(c => String(c.code) === String(keepCode))) $("city").value = keepCode;
+  lsSet("busCity", $("city").value);
+}
+
 async function loadCities() {
   try {
     const cities = await call("cities");
-    $("city").innerHTML = cities.map(c => `<option value="${c.citycode}">${c.cityname}</option>`).join("");
-    const d = cities.find(c => c.cityname.includes(DEFAULT_CITY_NAME));
-    if (d) $("city").value = d.citycode;
+    cityList = cities.map(c => ({ code: String(c.citycode), name: c.cityname, prov: PROVS[String(c.citycode).slice(0, 2)] || "기타" }));
+    const provs = [...new Set(cityList.map(c => c.prov))]
+      .sort((a, b) => (Object.values(PROVS).indexOf(a) + 1 || 99) - (Object.values(PROVS).indexOf(b) + 1 || 99));
+    $("prov").innerHTML = provs.map(p => `<option>${p}</option>`).join("");
+    const saved = ls("busCity", null);
+    const start = cityList.find(c => c.code === String(saved)) || cityList.find(c => c.name.includes(DEFAULT_CITY_NAME)) || cityList[0];
+    if (start) { $("prov").value = start.prov; fillCities(start.code); }
   } catch (e) { $("city").innerHTML = `<option>도시 목록 오류: ${e.message}</option>`; }
 }
+
+$("prov").onchange = () => fillCities();
+$("city").onchange = () => lsSet("busCity", $("city").value);
 
 async function searchStops() {
   const q = $("q").value.trim();
@@ -695,7 +718,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v8 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v9 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
