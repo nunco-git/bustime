@@ -3,6 +3,18 @@
 국토교통부 TAGO 버스 API로 정류장별 도착 예정 시간을 보여주고,
 지정한 버스가 가까워지면 음성으로 안내하는 앱입니다.
 
+## 📲 앱(APK) 내려받기
+**[➡ bustime.apk 바로 받기](https://github.com/nunco-git/bustime/releases/download/latest/bustime.apk)** ·
+[릴리스 페이지](https://github.com/nunco-git/bustime/releases/tag/latest)
+
+1. 폰에서 위 링크를 눌러 `bustime.apk`를 받습니다.
+2. 받은 파일을 눌러 설치합니다. ("출처를 알 수 없는 앱 설치" 허용이 필요할 수 있습니다)
+3. 기존 앱 위에 덮어 설치해도 로그인과 설정은 그대로 남습니다.
+4. 안드로이드 5.0 이상에서 설치됩니다. 7.0 미만 폰은 가벼운 "간단 화면"이 자동으로 열립니다.
+5. 설치 후 설정에서 배터리 사용을 "제한 없음"으로 바꾸면 화면이 꺼져도 음성 안내가 안정적으로 나옵니다.
+
+웹으로도 쓸 수 있습니다: https://bustime-c4cfd.web.app
+
 | 폴더 | 내용 |
 |---|---|
 | `public/` | 웹 화면 (Firebase Hosting) |
@@ -10,11 +22,8 @@
 | `android/` | 안드로이드 앱 (웹 화면 + 백그라운드 음성 안내 서비스) |
 | `.github/workflows/android.yml` | GitHub에서 APK를 자동으로 빌드 |
 
-## APK 받는 법
-1. 저장소의 **Actions** 탭 → **Build Android APK** → 가장 최근 실행을 엽니다.
-2. 맨 아래 **Artifacts**의 `bustime-debug-apk`를 내려받아 압축을 풀면 `app-debug.apk`가 나옵니다.
-3. 폰으로 옮겨 설치합니다. ("출처를 알 수 없는 앱 설치" 허용 필요)
-
+## APK 빌드
+`android/` 폴더를 고쳐 main에 올리면 GitHub Actions가 자동으로 APK를 빌드해 Releases(`latest`)에 올립니다.
 수동으로 다시 빌드하려면 Actions → Build Android APK → **Run workflow**.
 
 ## 웹 배포
