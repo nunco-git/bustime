@@ -24,13 +24,14 @@
   .sub { color: #4b5563; font-size: .7rem; }
   .err { color: #b91c1c; }
   .big { font-size: 1.3rem; font-weight: bold; }
-  .bus { display: -webkit-box; display: flex; justify-content: space-between; align-items: center; padding: .5rem 0; border-bottom: 1px solid #e5e7eb; }
+  .bus { -webkit-flex-wrap: wrap; flex-wrap: wrap; display: -webkit-box; display: flex; justify-content: space-between; align-items: center; padding: .5rem 0; border-bottom: 1px solid #e5e7eb; }
   .bus.watch { background: #fef9c3; padding-left: 6px; padding-right: 6px; }
   .no { font-size: 1.4rem; font-weight: bold; }
   .min { font-size: 1.4rem; font-weight: bold; color: #1d4ed8; text-align: right; }
   .row { margin-top: 4px; }
   .fav { display: -webkit-box; display: flex; justify-content: space-between; align-items: center; padding: .4rem 0; border-bottom: 1px solid #e5e7eb; }
   a { color: #1d4ed8; }
+  .bus button { width: 100%; margin-top: 4px; padding: .4rem; }
   #busChips button { margin: 3px 6px 3px 0; padding: .4rem .9rem; border-radius: 999px; font-weight: bold; background: #e0e7ff; color: #1d4ed8; }
   #busChips button.on { background: #16a34a; color: #fff; }
   summary { padding: .35rem 0; font-weight: bold; }
@@ -122,7 +123,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v11 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v12 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -212,6 +213,7 @@ var current = null, timer = null, watchStart = 0;
 
 function listen() { return CFG.hear !== false && !ls("muteHere", false); }
 function stopKey(s) { return s ? String(s.cityCode) + ":" + String(s.nodeid) : ""; }
+function sameStop(a, b) { return !!(a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode)); }
 function sig() { return JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && stopKey(CFG.stop)]); }
 function favs() { return ls("busFavs", []); }
 function stopOut(s) {
@@ -336,14 +338,33 @@ function loadArrivals() {
       for (i = 0; i < items.length; i++) {
         b = items[i];
         m = Math.floor((b.arrtime || 0) / 60);
-        w = wanted.indexOf(norm(b.routeno)) >= 0;
+        w = wanted.indexOf(norm(b.routeno)) >= 0 && sameStop(CFG.stop, st);
         html += '<div class="bus' + (w ? " watch" : "") + '"><div><span class="no">' + esc(b.routeno) + "</span>" + (w ? " 🔔" : "") + "</div>" +
-          '<div class="min">' + (m <= 1 ? "곧 도착" : m + "분") + '<br><span class="sub">' + esc(b.arrprevstationcnt == null ? "-" : b.arrprevstationcnt) + "정류장 전</span></div></div>";
+          '<div class="min">' + (m <= 1 ? "곧 도착" : m + "분") + '<br><span class="sub">' + esc(b.arrprevstationcnt == null ? "-" : b.arrprevstationcnt) + "정류장 전</span></div>" +
+          '<div style="width:100%"><button data-alarm="' + esc(b.routeno).replace(/"/g, "&quot;") + '"' + (w ? "" : ' class="g"') + ">" + (w ? "🔔 알람 켜짐" : "🔔 알람 설정") + "</button></div></div>";
       }
       $("arr").innerHTML = html;
     }
     $("upd").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
   });
+}
+
+function alarmBus(no) {
+  var st = current, i, idx = -1;
+  if (!st) return;
+  var stop = stopOut(st), f = favs(), has = false;
+  for (i = 0; i < f.length; i++) if (String(f[i].nodeid) === stop.nodeid && String(f[i].cityCode) === stop.cityCode) has = true;
+  if (!has) { f.push(stop); saveFavs(f); }
+  var same = sameStop(CFG.stop, stop), sel = same ? selBuses() : [];
+  for (i = 0; i < sel.length; i++) if (norm(sel[i]) === norm(no)) idx = i;
+  var turnOn = !(same && CFG.on && idx >= 0), p = {};
+  if (turnOn) { if (idx < 0) sel.push(String(no)); } else sel.splice(idx, 1);
+  p.buses = sel.join(", ");
+  if (!same) p.stop = stop;
+  if (turnOn && !CFG.on) p.on = true;
+  saveAlert(p);
+  if (turnOn && p.on && NATIVE && listen()) { try { AndroidBridge.speakTest(); } catch (e) {} }
+  loadArrivals();
 }
 
 /* ---------- 화면 그리기 ---------- */
@@ -553,6 +574,8 @@ document.addEventListener("click", function (e) {
   var b = e.target;
   while (b && b.tagName !== "BUTTON") b = b.parentNode;
   if (!b || b === document) return;
+  var al = b.getAttribute("data-alarm");
+  if (al != null) { alarmBus(al); return; }
   var bs = b.getAttribute("data-bus");
   if (bs != null) toggleBus(bs);
   var sc = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");

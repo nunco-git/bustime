@@ -60,7 +60,11 @@
   .modal { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:12px; z-index:50; }
   .modal .box { background:#fff; border-radius:16px; padding:16px; width:100%; max-width:520px; max-height:92vh; overflow:auto; }
   .pick { display:flex; gap:6px; margin-top:8px; }
-  .bus[data-route] { cursor:pointer; }
+  .bus .bl { width:100%; }
+  .bus .bt { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .bus .bt .min { margin-left:auto; text-align:right; }
+  .bus .bb { display:flex; gap:8px; margin-top:6px; }
+  .bus .bb button { flex:1; padding:.5rem .3rem; }
   .hint { color:var(--main); font-size:.75rem; }
   .rs { display:flex; align-items:center; gap:8px; padding:.35rem .2rem; border-bottom:1px solid var(--line); }
   .rs .ord { width:2.2rem; text-align:right; color:var(--sub); font-size:.75rem; flex:none; }
@@ -980,6 +984,26 @@ async function showArrivals(stop) {
   }, REFRESH_SEC * 1000);
 }
 
+// 도착정보 목록에서 바로 알람 설정: 지금 보는 정류장을 안내 정류장으로(즐겨찾기에 없으면 추가) 하고 그 버스를 켜고 끔
+const alarmOn = no => !!CFG.on && sameStop(CFG.stop, current) && String(CFG.buses || "").split(",").map(norm).includes(norm(no));
+function alarmBus(no) {
+  const st = current;
+  if (!st) return;
+  const stop = stopOut(st);
+  if (!isFav(stop)) { const f = favs(); f.push(stop); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
+  const same = sameStop(CFG.stop, stop);
+  const sel = same ? String(CFG.buses || "").split(",").map(x => x.trim()).filter(Boolean) : [];   // 다른 정류장이면 새로 시작
+  const i = sel.findIndex(x => norm(x) === norm(no));
+  const turnOn = !(same && CFG.on && i >= 0);
+  if (turnOn) { if (i < 0) sel.push(String(no)); } else sel.splice(i, 1);
+  const p = { buses: sel.join(", ") };
+  if (!same) p.stop = stop;
+  if (turnOn && !CFG.on) p.on = true;
+  saveAlert(p);
+  if (turnOn && p.on && (!acctOn || listen())) { if (NATIVE) AndroidBridge.speakTest(); else { speak("음성 안내를 켰습니다."); keepAwake(); } }
+  loadArrivals();
+}
+
 async function loadArrivals() {
   if (!current) return;
   try {
@@ -991,9 +1015,10 @@ async function loadArrivals() {
       $("arrivals").innerHTML = items.map(b => {
         const m = Math.floor((b.arrtime ?? 0) / 60);
         const w = wanted.includes(norm(b.routeno)) ? " watch" : "";
-        const rid = b.routeid ? ` data-route="${b.routeid}" data-routeno="${b.routeno}"` : "";
-        return `<div class="bus${w}"${rid}><div><span class="no">${b.routeno}</span> <small>${b.routetp ?? ""}${w ? " 🔔" : ""}</small>${rid ? `<br><span class="hint">▶ 눌러서 노선·버스 위치 보기</span>` : ""}</div>
-          <div class="min">${m <= 1 ? "곧 도착" : m + "분"}<br><small>${b.arrprevstationcnt ?? "-"}정류장 전</small></div></div>`;
+        const mine = alarmOn(b.routeno);
+        return `<div class="bus${w}"><div class="bl"><div class="bt"><span class="no">${b.routeno}</span> <small>${b.routetp ?? ""}</small>
+            <span class="min">${m <= 1 ? "곧 도착" : m + "분"} <small>${b.arrprevstationcnt ?? "-"}정류장 전</small></span></div>
+            <div class="bb"><button class="${mine ? "" : "ghost"}" data-alarm="${escH(b.routeno)}">${mine ? "🔔 알람 켜짐" : "🔔 알람 설정"}</button>${b.routeid ? `<button class="ghost" data-route="${escH(b.routeid)}" data-routeno="${escH(b.routeno)}">📍 버스 위치</button>` : ""}</div></div></div>`;
       }).join("");
     }
     $("updated").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
@@ -1147,6 +1172,7 @@ document.addEventListener("click", e => {
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
   if (d.bus != null) toggleBus(d.bus);
+  if (d.alarm != null) alarmBus(d.alarm);
   if (d.asset != null) {      // 설정창 검색 결과에서 지정
     const x = window._asStops[d.asset];
     const f = favs();
@@ -1212,8 +1238,8 @@ $("hearToggle").onclick = () => saveAlert({ hear: CFG.hear === false });
 $("muteToggle").onclick = () => { lsSet("muteHere", !ls("muteHere", false)); renderFam(); syncNative(); };
 
 document.addEventListener("click", e => {
-  const row = e.target.closest(".bus[data-route]");
-  if (row && current) showRoute(row.dataset.route, row.dataset.routeno);
+  const bt = e.target.closest("button[data-route]");
+  if (bt && current) showRoute(bt.dataset.route, bt.dataset.routeno);
 });
 document.addEventListener("click", e => {
   const el = e.target.closest("[data-stn]");
@@ -1237,7 +1263,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v36 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v37 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
