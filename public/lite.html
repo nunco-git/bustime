@@ -33,6 +33,7 @@
   a { color: #1d4ed8; }
   #busChips button { margin: 3px 6px 3px 0; padding: .4rem .9rem; border-radius: 999px; font-weight: bold; background: #e0e7ff; color: #1d4ed8; }
   #busChips button.on { background: #16a34a; color: #fff; }
+  summary { padding: .35rem 0; font-weight: bold; }
   .dir { color: #1d4ed8; font-size: .75rem; font-weight: bold; }
 </style>
 </head>
@@ -52,8 +53,10 @@
       <button id="refresh">새로고침</button>
     </div>
     <div class="card" id="favBox" hidden>
-      <b>즐겨찾기 정류장</b>
-      <div id="favs"></div>
+      <details open>
+        <summary><b>즐겨찾기 정류장</b></summary>
+        <div id="favs"></div>
+      </details>
     </div>
   </div>
 
@@ -75,9 +78,10 @@
       <button class="g" id="voiceTest">음성 테스트</button>
       <label for="alertStop">① 안내받을 정류장</label>
       <select id="alertStop"></select>
-      <label>② 안내받을 버스 (눌러서 선택)</label>
-      <button type="button" class="ghost" id="busFold" data-busfold="1" style="margin:2px 0 4px"></button>
-      <div id="busChips"></div>
+      <details id="busDet" open>
+        <summary id="busSum">② 안내받을 버스 (눌러서 선택)</summary>
+        <div id="busChips"></div>
+      </details>
       <input id="alertBus" placeholder="목록에 없으면 직접 입력 (예: 150, 207)">
       <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
       <select id="alertMin">
@@ -94,7 +98,10 @@
       <select id="city"></select>
       <input id="q" placeholder="정류장 이름 또는 번호">
       <button id="search">검색</button>
-      <div id="found"></div>
+      <details id="foundDet" open>
+        <summary>검색 결과</summary>
+        <div id="found"></div>
+      </details>
     </div>
 
     <div class="card">
@@ -115,7 +122,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v9 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v10 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -420,9 +427,8 @@ function selBuses() {
   return String(CFG.buses || "").split(",").map(function (x) { return x.replace(/^\s+|\s+$/g, ""); }).filter(function (x) { return x; });
 }
 function renderBusChips() {
-  var box = $("busChips"), stop = CFG.stop || current, folded = ls("busFold", false);
-  $("busFold").innerHTML = folded ? "▼ 버스 번호 목록 펼치기" : "▲ 버스 번호 목록 숨기기";
-  if (folded) { box.innerHTML = '<div class="sub">선택한 버스: <b>' + esc(selBuses().join(", ") || "없음") + "</b></div>"; return; }
+  var box = $("busChips"), stop = CFG.stop || current, st = selBuses().join(", ");
+  $("busSum").innerHTML = "② 안내받을 버스" + (st ? " — 선택: " + esc(st) : " (눌러서 선택)");
   if (!stop) { box.innerHTML = '<div class="sub">먼저 ①에서 안내받을 정류장을 고르세요.</div>'; return; }
   var k = stopKey(stop), r = routeCache[k];
   if (r === undefined) { fetchRoutes(stop); box.innerHTML = '<div class="sub">버스 목록을 불러오는 중…</div>'; return; }
@@ -463,6 +469,7 @@ function searchStops() {
   var q = $("q").value.replace(/^\s+|\s+$/g, "");
   if (!q) return;
   lsSet("busCity", $("city").value);
+  $("foundDet").open = true;
   $("found").innerHTML = '<div class="sub">검색 중…</div>';
   var p = { cityCode: $("city").value };
   if (/^\d+$/.test(q)) p.nodeNo = q; else p.nodeNm = q;
@@ -544,7 +551,6 @@ document.addEventListener("click", function (e) {
   var b = e.target;
   while (b && b.tagName !== "BUTTON") b = b.parentNode;
   if (!b || b === document) return;
-  if (b.getAttribute("data-busfold") != null) { lsSet("busFold", !ls("busFold", false)); renderBusChips(); return; }
   var bs = b.getAttribute("data-bus");
   if (bs != null) toggleBus(bs);
   var sc = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");
