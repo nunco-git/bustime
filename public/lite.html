@@ -114,7 +114,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v6 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v7 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -358,6 +358,12 @@ function renderStopSel() {
   $("alertStop").innerHTML = html;
   $("alertStop").value = cur ? stopKey(cur) : "";
   renderStopSel.list = list;
+  var opts = $("alertStop").options;
+  for (i = 0; i < opts.length; i++) (function (o) {
+    if (!o.value) return;
+    var p = o.value.split(":"), base = o.text;
+    dirFor(p[0], p[1], function (t) { if (t) o.text = base + " → " + t; });
+  })(opts[i]);
 }
 
 function renderAll() {
@@ -387,17 +393,23 @@ var routeCache = {};
 function fetchRoutes(stop) {
   var k = stopKey(stop);
   routeCache[k] = "loading";
-  call("stopRoutes", { cityCode: stop.cityCode, nodeid: stop.nodeid }, function (err, items) {
+  call("stopDirs", { cityCode: stop.cityCode, nodeid: stop.nodeid }, function (err0, items0) {
+   if (!err0) return fetchRoutes.done(k, null, items0);
+   call("stopRoutes", { cityCode: stop.cityCode, nodeid: stop.nodeid }, function (err, items) { fetchRoutes.done(k, err, items); });
+  });
+}
+fetchRoutes.done = function (k, err, items) {
+  {
     if (err) routeCache[k] = "error:" + err.message;
     else {
       var seen = {}, list = [], i, no;
-      for (i = 0; i < items.length; i++) { no = String(items[i].routeno); if (!seen[no]) { seen[no] = 1; list.push({ no: no }); } }
+      for (i = 0; i < items.length; i++) { no = String(items[i].routeno); if (!seen[no]) { seen[no] = 1; list.push({ no: no, dir: (items[i].dests || []).slice(0, 2).join("·") }); } }
       list.sort(function (a, b) { return (parseInt(a.no, 10) || 1e9) - (parseInt(b.no, 10) || 1e9) || (a.no < b.no ? -1 : 1); });
       routeCache[k] = list;
     }
     renderBusChips();
-  });
-}
+  }
+};
 function selBuses() {
   return String(CFG.buses || "").split(",").map(function (x) { return x.replace(/^\s+|\s+$/g, ""); }).filter(function (x) { return x; });
 }
@@ -409,7 +421,7 @@ function renderBusChips() {
   var sel = selBuses(), selN = sel.map(norm), list = (r instanceof Array) ? r.slice() : [], i, j, has, html;
   for (i = 0; i < sel.length; i++) { has = false; for (j = 0; j < list.length; j++) if (norm(list[j].no) === norm(sel[i])) has = true; if (!has) list.push({ no: sel[i] }); }
   html = '<div class="sub">' + esc(stop.nodenm) + " 정류장</div>";
-  for (i = 0; i < list.length; i++) html += '<button' + (selN.indexOf(norm(list[i].no)) >= 0 ? ' class="on"' : "") + ' data-bus="' + esc(list[i].no).replace(/"/g, "&quot;") + '">' + esc(list[i].no) + "</button>";
+  for (i = 0; i < list.length; i++) html += '<button' + (selN.indexOf(norm(list[i].no)) >= 0 ? ' class="on"' : "") + ' data-bus="' + esc(list[i].no).replace(/"/g, "&quot;") + '">' + esc(list[i].no) + (list[i].dir ? '<br><small>→ ' + esc(list[i].dir) + "</small>" : "") + "</button>";
   if (r === "loading") html += '<div class="sub">버스 목록을 불러오는 중…</div>';
   else if (typeof r === "string") html += '<div class="sub err">버스 목록을 가져오지 못했습니다. ' + esc(r.slice(6)) + " 아래에 직접 입력하세요.</div>";
   else if (!r.length && !list.length) html = '<div class="sub">이 정류장을 지나는 버스 정보가 없습니다. 아래에 직접 입력하세요.</div>';

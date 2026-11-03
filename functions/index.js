@@ -70,6 +70,33 @@ async function directionOf(cityCode, nodeId) {
   return names;
 }
 
+// 정류장을 지나는 버스별 방면(이 정류장에서 타면 가는 방향). 이 정류장이 종점인 노선(탈 수 없음)은 뺀다.
+async function stopDirsOf(cityCode, nodeId) {
+  const key = "sd|" + cityCode + "|" + nodeId;
+  const hit = dirCache.get(key);
+  if (hit && Date.now() - hit.t < DIR_TTL) return hit.v;
+  const routes = asItems(await tagoJson("BusSttnInfoInqireService/getSttnThrghRouteList", { cityCode, nodeid: nodeId })).slice(0, 25);
+  const out = [];
+  let failed = 0;
+  await Promise.all(routes.map(async r => {
+    let dests = [], known = false;
+    try {
+      const st = await routeStopsCached(cityCode, r.routeid);
+      known = st.length > 0;
+      for (const m of st.filter(x => x.id === nodeId)) {
+        const same = st.filter(x => x.ud === m.ud && x.ord >= m.ord);
+        if (!same.length) continue;
+        const last = same.reduce((a, b) => (b.ord > a.ord ? b : a));
+        if (last.id !== nodeId && !dests.includes(last.nm)) dests.push(last.nm);
+      }
+    } catch (e) { failed++; }
+    if (known && !dests.length) return;     // 이 정류장이 종점 -> 제외
+    out.push({ routeno: String(r.routeno), dests });
+  }));
+  if (out.length && !failed) dirCache.set(key, { t: Date.now(), v: out });
+  return out;
+}
+
 exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: true }, async (req, res) => {
   const opName = String(req.query.op);
   if (opName === "direction") {
@@ -82,6 +109,18 @@ exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: 
     } catch (e) {
       console.error("direction 실패", e);
       return res.json({ response: { header: { resultCode: "99", resultMsg: "방면 정보를 가져오지 못했습니다" } } });
+    }
+  }
+  if (opName === "stopDirs") {
+    const cityCode = String(req.query.cityCode || ""), nodeId = String(req.query.nodeid || "");
+    res.set("Cache-Control", "no-store");
+    if (!cityCode || !nodeId) return res.status(400).json({ error: "cityCode, nodeid 필요" });
+    try {
+      const items = await stopDirsOf(cityCode, nodeId);
+      return res.json({ response: { header: { resultCode: "00" }, body: { items: { item: items } } } });
+    } catch (e) {
+      console.error("stopDirs 실패", e);
+      return res.json({ response: { header: { resultCode: "99", resultMsg: "버스 목록을 가져오지 못했습니다" } } });
     }
   }
   const op = OPS[opName];

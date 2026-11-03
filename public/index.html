@@ -852,9 +852,11 @@ async function fetchRoutes(stop) {
   const k = stopKey(stop);
   routeCache[k] = "loading";
   try {
-    const items = await call("stopRoutes", { cityCode: stop.cityCode, nodeid: stop.nodeid });
+    let items;
+    try { items = await call("stopDirs", { cityCode: stop.cityCode, nodeid: stop.nodeid }); }
+    catch { items = await call("stopRoutes", { cityCode: stop.cityCode, nodeid: stop.nodeid }); }   // 방면 계산이 안 되면 번호만
     const seen = {}, list = [];
-    items.forEach(x => { const no = String(x.routeno); if (!seen[no]) { seen[no] = 1; list.push({ no }); } });
+    items.forEach(x => { const no = String(x.routeno); if (!seen[no]) { seen[no] = 1; list.push({ no, dir: (x.dests || []).slice(0, 2).join("·") }); } });
     list.sort((a, b) => (parseInt(a.no, 10) || 1e9) - (parseInt(b.no, 10) || 1e9) || (a.no < b.no ? -1 : 1));
     routeCache[k] = list;
   } catch (e) { routeCache[k] = "error:" + e.message; }
@@ -871,7 +873,7 @@ function renderBusChips() {
   const sel = String(CFG.buses || "").split(",").map(x => x.trim()).filter(Boolean), selN = sel.map(norm);
   const list = Array.isArray(r) ? r.slice() : [];
   sel.forEach(b => { if (!list.some(x => norm(x.no) === norm(b))) list.push({ no: b }); });   // 직접 입력한 번호도 보이게
-  let html = list.map(x => `<button class="ghost${selN.includes(norm(x.no)) ? " on" : ""}" data-bus="${escH(x.no)}">${escH(x.no)}</button>`).join("");
+  let html = list.map(x => `<button class="ghost${selN.includes(norm(x.no)) ? " on" : ""}" data-bus="${escH(x.no)}">${escH(x.no)}${x.dir ? `<small style="display:block;font-weight:600">→ ${escH(x.dir)}</small>` : ""}</button>`).join("");
   if (r === "loading") html += `<div class="sub">버스 목록을 불러오는 중…</div>`;
   else if (typeof r === "string") html += `<div class="sub err">버스 목록을 가져오지 못했습니다. ${escH(r.slice(6))} 아래에 직접 입력하세요.</div>`;
   else if (!r.length && !list.length) html = `<div class="sub">이 정류장을 지나는 버스 정보가 없습니다. 아래에 직접 입력하세요.</div>`;
@@ -895,6 +897,11 @@ function renderStopSel() {
   $("alertStop").innerHTML = `<option value="">${list.length ? "(고르세요 / 지금 보고 있는 정류장)" : "(즐겨찾기가 없습니다 · 아래에서 검색하세요)"}</option>` +
     list.map(x => `<option value="${stopKey(x)}">${x.nodenm} (${x.cityName})</option>`).join("");
   $("alertStop").value = cur ? stopKey(cur) : "";
+  [...$("alertStop").options].forEach(o => {      // 방면을 옵션 글자에 덧붙임
+    const v = o.value; if (!v) return;
+    const [c, n] = v.split(":"), base = o.textContent;
+    dirFor(c, n, t => { if (t) o.textContent = base + " → " + t; });
+  });
 }
 
 function setGuideStop(x) {
@@ -1210,7 +1217,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v30 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v31 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
