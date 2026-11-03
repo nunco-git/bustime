@@ -1,6 +1,10 @@
 {
   "hosting": {
     "public": "public",
+    "headers": [
+      { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "**/*.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ],
     "rewrites": [
       { "source": "/api", "function": { "functionId": "bus", "region": "asia-northeast3" } }
     ]

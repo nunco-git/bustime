@@ -346,6 +346,13 @@ renderAlertUi();
 if (NATIVE) $("alertNote").textContent =
   "※ 안내는 지금 보고 있는 정류장 기준입니다. 정류장의 도착정보를 먼저 열고 음성 안내를 켜세요. " +
   "그 뒤에는 화면을 끄거나 다른 앱을 써도 안내가 나옵니다. (최대 60분, 상단 알림의 '안내 종료'로 끌 수 있습니다)";
+{ // 진단용: 현재 화면 버전과 앱 연결 여부 표시
+  const v = document.createElement("div");
+  v.className = "sub";
+  v.style.marginTop = ".6rem";
+  v.textContent = "화면 버전 v4 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  $("settings").appendChild(v);
+}
 renderFavs();
 loadCities();
 </script>
