@@ -35,6 +35,7 @@
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
   .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
+  .dir { color:var(--main); font-size:.8rem; font-weight:700; }
   .wrap.inSettings > :not(.top):not(#settings) { display:none !important; }   /* 설정 화면에서는 아래 본 화면을 숨김 */
   details.grp { border-top:1px solid var(--line); margin-top:.7rem; padding-top:.4rem; }
   details.inner { margin-top:.5rem; }
@@ -223,7 +224,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
 
   <div class="card" id="arrBox" style="display:none">
     <div class="row" style="justify-content:space-between">
-      <b id="arrTitle"></b>
+      <div><b id="arrTitle"></b><div class="dir" id="arrDir"></div></div>
       <button class="ghost" id="refresh">새로고침</button>
     </div>
     <div id="arrivals"></div>
@@ -374,6 +375,42 @@ function errText(e) {
 const famMsg = (t, err) => { const m = $("famMsg"); m.textContent = t || ""; m.className = "sub" + (err ? " err" : ""); };
 
 /* ================= 호출/즐겨찾기/정류장 ================= */
+/* ---- 'OO 방면' 표시 ---- */
+const dirCache = {};            // "도시:정류장ID" -> 표시 문구
+let dirQueue = [], dirBusy = false;
+function dirText(names) {
+  if (!names || !names.length) return "";
+  return names[0] === "종점" ? "종점" : names.join(" · ") + " 방면";
+}
+function dirFor(cityCode, nodeId, cb) {
+  const k = cityCode + ":" + nodeId;
+  if (k in dirCache) { cb(dirCache[k]); return; }
+  dirQueue.push({ k, cityCode, nodeId, cb });
+  if (dirBusy) return;
+  dirBusy = true;
+  (async () => {
+    while (dirQueue.length) {
+      const j = dirQueue.shift();
+      if (j.k in dirCache) { j.cb(dirCache[j.k]); continue; }
+      try {
+        const it = await call("direction", { cityCode: j.cityCode, nodeId: j.nodeId });
+        dirCache[j.k] = dirText(it[0] && it[0].names);
+      } catch { dirCache[j.k] = ""; }
+      j.cb(dirCache[j.k]);
+    }
+    dirBusy = false;
+  })();
+}
+// 화면의 .dir[data-dir="도시:정류장ID"] 자리에 방면을 채움
+function fillDirs(root) {
+  (root || document).querySelectorAll(".dir[data-dir]").forEach(el => {
+    if (el.dataset.done) return;
+    el.dataset.done = "1";
+    const [c, n] = el.dataset.dir.split(":");
+    dirFor(c, n, t => { el.textContent = t ? "→ " + t : ""; });
+  });
+}
+
 async function call(op, params = {}) {
   const u = new URL(API, location.origin);
   u.searchParams.set("op", op);
@@ -409,17 +446,19 @@ function renderFavs() {
   const cn = rows.length && $("city").selectedOptions[0] ? $("city").selectedOptions[0].text : "";
   $("favTitle").textContent = cn ? `즐겨찾기 (${cn})` : "즐겨찾기";
   if (typeof renderStopSel === "function") renderStopSel();
+  setTimeout(() => fillDirs($("favs")), 0);
   $("favs").innerHTML = rows.map(({ s, i }) =>
-    `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
+    `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small><div class="dir" data-dir="${s.cityCode}:${s.nodeid}"></div></div>
      <div class="btns"><button data-fav="${i}">보기</button> <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
 }
 
 function renderStops() {
   $("stops").innerHTML = window._stops.map((s, i) => {
     const on = isFav(s);
-    return `<div class="stop"><div class="stn" data-stn="${i}" style="cursor:pointer;flex:1;min-width:0"><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
+    return `<div class="stop"><div class="stn" data-stn="${i}" style="cursor:pointer;flex:1;min-width:0"><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small>${i < 6 ? `<div class="dir" data-dir="${s.cityCode}:${s.nodeid}"></div>` : ""}</div>
       <div class="btns"><button class="${on ? "ghost" : ""}" data-add="${i}">${on ? "★ 즐겨찾기 해제" : "☆ 즐겨찾기 추가"}</button></div></div>`;
   }).join("");
+  fillDirs($("stops"));
 }
 
 // 도시코드 앞 2자리 = 광역시·도
@@ -772,6 +811,8 @@ function mapPopup(stop) {
     box.innerHTML = `<b></b><br><small></small><div class="row"></div>`;
     box.querySelector("b").textContent = stop.nodenm;
     box.querySelector("small").textContent = (stop.cityName ? stop.cityName + " · " : "") + stop.nodeno;
+    const dv = document.createElement("div"); dv.className = "dir"; box.insertBefore(dv, box.querySelector(".row"));
+    dirFor(stop.cityCode, stop.nodeid, t => { dv.textContent = t ? "→ " + t : ""; });
     const row = box.querySelector(".row");
     const b1 = document.createElement("button"); b1.textContent = "도착정보";
     b1.onclick = () => { closeMap(); pickCity(stop.cityCode); showArrivals(stop); };
@@ -849,6 +890,8 @@ async function showArrivals(stop) {
   watchStart = Date.now();
   $("arrBox").style.display = "";
   $("arrTitle").textContent = stop.nodenm;
+  $("arrDir").textContent = "";
+  dirFor(String(stop.cityCode), String(stop.nodeid), t => { if (current === stop) $("arrDir").textContent = t ? "→ " + t : ""; });
   $("arrivals").innerHTML = `<div class="msg">불러오는 중…</div>`;
   $("updated").textContent = "";
   $("arrBox").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1122,7 +1165,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v26 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v27 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

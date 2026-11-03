@@ -31,6 +31,7 @@
   .row { margin-top: 4px; }
   .fav { display: -webkit-box; display: flex; justify-content: space-between; align-items: center; padding: .4rem 0; border-bottom: 1px solid #e5e7eb; }
   a { color: #1d4ed8; }
+  .dir { color: #1d4ed8; font-size: .75rem; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -43,6 +44,7 @@
     </div>
     <div class="card">
       <div class="big" id="stopName">정류장을 정해 주세요</div>
+      <div class="dir" id="stopDir"></div>
       <div id="arr"></div>
       <div class="sub" id="upd"></div>
       <button id="refresh">새로고침</button>
@@ -110,7 +112,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v3 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v4 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -153,6 +155,38 @@ function call(op, params, cb) {
   x.ontimeout = function () { fin(new Error("시간이 오래 걸립니다. 잠시 뒤에 다시 해 주세요.")); };
   x.onerror = function () { fin(new Error("인터넷 연결을 확인해 주세요.")); };
   x.send();
+}
+
+/* ---------- 'OO 방면' 표시 ---------- */
+var dirCache = {}, dirQueue = [], dirBusy = false;
+function dirText(names) {
+  if (!names || !names.length) return "";
+  return names[0] === "종점" ? "종점" : names.join(" · ") + " 방면";
+}
+function dirNext() {
+  var j = dirQueue.shift();
+  if (!j) { dirBusy = false; return; }
+  if (dirCache.hasOwnProperty(j.k)) { j.cb(dirCache[j.k]); return dirNext(); }
+  call("direction", { cityCode: j.c, nodeId: j.n }, function (err, it) {
+    dirCache[j.k] = err ? "" : dirText(it && it[0] && it[0].names);
+    j.cb(dirCache[j.k]);
+    dirNext();
+  });
+}
+function dirFor(c, n, cb) {
+  var k = c + ":" + n;
+  if (dirCache.hasOwnProperty(k)) { cb(dirCache[k]); return; }
+  dirQueue.push({ k: k, c: c, n: n, cb: cb });
+  if (!dirBusy) { dirBusy = true; dirNext(); }
+}
+function fillDirs(root) {
+  var els = root.querySelectorAll(".dir[data-dir]"), i;
+  for (i = 0; i < els.length; i++) (function (el) {
+    if (el.getAttribute("data-done")) return;
+    el.setAttribute("data-done", "1");
+    var p = el.getAttribute("data-dir").split(":");
+    dirFor(p[0], p[1], function (t) { el.textContent = t ? "→ " + t : ""; });
+  })(els[i]);
 }
 
 /* ---------- 설정(CFG): 기기 저장 또는 계정 ---------- */
@@ -253,6 +287,8 @@ function showStop(stop) {
   current = stop;
   watchStart = new Date().getTime();
   $("stopName").textContent = stop.nodenm;
+  $("stopDir").textContent = "";
+  dirFor(String(stop.cityCode), String(stop.nodeid), function (t) { if (current === stop) $("stopDir").textContent = t ? "→ " + t : ""; });
   $("arr").innerHTML = '<div class="sub">불러오는 중…</div>';
   $("upd").textContent = "";
   clearInterval(timer);
@@ -306,9 +342,10 @@ function renderFavs() {
   $("favBox").hidden = !f.length;
   for (i = 0; i < f.length; i++) {
     html += '<div class="fav"><div><b>' + esc(f[i].nodenm) + '</b><br><span class="sub">' + esc(f[i].cityName) + " · " + esc(f[i].nodeno) +
-      '</span></div><div><button data-fav="' + i + '">보기</button></div></div>';
+      '</span><div class="dir" data-dir="' + esc(f[i].cityCode) + ":" + esc(f[i].nodeid) + '"></div></div><div><button data-fav="' + i + '">보기</button></div></div>';
   }
   $("favs").innerHTML = html;
+  fillDirs($("favs"));
 }
 
 function renderStopSel() {
@@ -375,9 +412,10 @@ function searchStops() {
     for (i = 0; i < items.length; i++) {
       searchStops.list.push(stopOut({ cityCode: p.cityCode, cityName: cname, nodeid: items[i].nodeid, nodenm: items[i].nodenm, nodeno: items[i].nodeno }));
       html += '<div class="fav"><div><b>' + esc(items[i].nodenm) + '</b><br><span class="sub">' + esc(items[i].nodeno == null ? "" : items[i].nodeno) +
-        '</span></div><div><button data-pick="' + i + '">이 정류장으로</button></div></div>';
+        '</span>' + (i < 6 ? '<div class="dir" data-dir="' + esc(p.cityCode) + ":" + esc(items[i].nodeid) + '"></div>' : "") + '</div><div><button data-pick="' + i + '">이 정류장으로</button></div></div>';
     }
     $("found").innerHTML = html;
+    fillDirs($("found"));
   });
 }
 
