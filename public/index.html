@@ -183,7 +183,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
     </div>
     <div class="sub" id="mapMsg" style="margin-top:6px"></div>
     <div class="mapwrap"><div id="map"></div><div class="cross"></div></div>
-    <div class="sub" style="margin-top:4px">지도 © OpenStreetMap 기여자</div>
+    <div class="sub" id="mapCredit" style="margin-top:4px"></div>
   </div>
 
   <div class="card" id="favBox" style="display:none">
@@ -619,63 +619,122 @@ function renderAlertUi() {
 }
 
 /* ================= 지도에서 정류장 찾기 ================= */
-let map = null, mapLayer = null, leafletP = null;
+// 네이버 지도를 쓰려면 네이버 클라우드 플랫폼(NCP) Maps 'Client ID'(ncpKeyId)를 여기에 넣습니다.
+// 비어 있으면 오픈스트리트맵(키 필요 없음)으로 동작합니다.
+const NAVER_KEY = "";
 const BUYEO = [36.2757, 126.9097];
+let E = null, enginePromise = null;     // E: 지금 쓰는 지도 엔진 (naver 또는 leaflet)
 
-function loadLeaflet() {
-  if (leafletP) return leafletP;
-  leafletP = new Promise((res, rej) => {
-    const css = document.createElement("link");
-    css.rel = "stylesheet"; css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
-    document.head.appendChild(css);
+function loadScript(src, css) {
+  return new Promise((res, rej) => {
+    if (css) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = css; document.head.appendChild(l); }
     const sc = document.createElement("script");
-    sc.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
-    sc.onload = () => res(window.L);
-    sc.onerror = () => { leafletP = null; rej(new Error("지도를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.")); };
+    sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error("지도를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요."));
     document.head.appendChild(sc);
   });
-  return leafletP;
+}
+
+function leafletEngine() {
+  let map, layer;
+  return {
+    name: "OpenStreetMap", credit: "지도 © OpenStreetMap 기여자",
+    create(id, c) {
+      map = L.map(id).setView(c, 16);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+      layer = L.layerGroup().addTo(map);
+    },
+    center() { const c = map.getCenter(); return [c.lat, c.lng]; },
+    setView(lat, lng, z) { map.setView([lat, lng], z); },
+    resize() { map.invalidateSize(); },
+    clear() { layer.clearLayers(); },
+    marker(lat, lng, popup) {
+      const m = L.circleMarker([lat, lng], { radius: 11, color: "#fff", weight: 3, fillColor: "#1d4ed8", fillOpacity: 1 });
+      m.on("click", () => m.bindPopup(popup()).openPopup());
+      m.addTo(layer);
+    },
+  };
+}
+
+function naverEngine() {
+  let map, mks = [], info = null;
+  return {
+    name: "네이버 지도", credit: "지도 © NAVER Corp.",
+    create(id, c) { map = new naver.maps.Map(id, { center: new naver.maps.LatLng(c[0], c[1]), zoom: 16 }); },
+    center() { const c = map.getCenter(); return [c.lat(), c.lng()]; },
+    setView(lat, lng, z) { map.setCenter(new naver.maps.LatLng(lat, lng)); if (z) map.setZoom(z); },
+    resize() { naver.maps.Event.trigger(map, "resize"); },
+    clear() { mks.forEach(m => m.setMap(null)); mks = []; if (info) info.close(); },
+    marker(lat, lng, popup) {
+      const mk = new naver.maps.Marker({
+        position: new naver.maps.LatLng(lat, lng), map,
+        icon: { content: '<div style="width:22px;height:22px;border-radius:50%;background:#1d4ed8;border:3px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.6)"></div>',
+                anchor: new naver.maps.Point(14, 14) },
+      });
+      naver.maps.Event.addListener(mk, "click", () => {
+        if (info) info.close();
+        info = new naver.maps.InfoWindow({ content: popup(), maxWidth: 300, borderWidth: 1, anchorSize: new naver.maps.Size(10, 10) });
+        info.open(map, mk);
+      });
+      mks.push(mk);
+    },
+  };
+}
+
+function getEngine() {
+  if (!enginePromise) enginePromise = (async () => {
+    if (NAVER_KEY) {
+      try {
+        window.navermap_authFailure = () => {
+          $("mapMsg").className = "sub err";
+          $("mapMsg").textContent = "네이버 지도 인증에 실패했습니다. Client ID와 '웹 서비스 URL' 등록을 확인해 주세요.";
+        };
+        await loadScript("https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=" + encodeURIComponent(NAVER_KEY));
+        if (window.naver && window.naver.maps) return naverEngine();
+      } catch (e) {}
+    }
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js", "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css");
+    return leafletEngine();
+  })().catch(e => { enginePromise = null; throw e; });
+  return enginePromise;
 }
 
 async function openMap() {
   $("mapBox").style.display = "";
-  $("mapMsg").textContent = "지도를 불러오는 중…";
+  $("mapMsg").className = "sub"; $("mapMsg").textContent = "지도를 불러오는 중…";
   try {
-    const L = await loadLeaflet();
-    if (!map) {
-      map = L.map("map").setView(ls("mapCenter", BUYEO), 16);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
-      mapLayer = L.layerGroup().addTo(map);
+    const eng = await getEngine();
+    if (!E) {
+      E = eng;
+      E.create("map", ls("mapCenter", BUYEO));
+      $("mapCredit").textContent = E.credit;
     }
-    setTimeout(() => map.invalidateSize(), 50);
+    setTimeout(() => E.resize(), 50);
     $("mapBox").scrollIntoView({ behavior: "smooth", block: "start" });
     mapSearch();
   } catch (e) { $("mapMsg").textContent = e.message; $("mapMsg").className = "sub err"; }
 }
 
 async function mapSearch() {
-  if (!map) return;
-  const c = map.getCenter();
-  lsSet("mapCenter", [c.lat, c.lng]);
+  if (!E) return;
+  const c = E.center();
+  lsSet("mapCenter", c);
   $("mapMsg").className = "sub"; $("mapMsg").textContent = "정류장을 찾는 중…";
   try {
-    const items = await call("nearby", { gpsLati: c.lat.toFixed(4), gpsLong: c.lng.toFixed(4) });
-    mapLayer.clearLayers();
+    const items = await call("nearby", { gpsLati: c[0].toFixed(4), gpsLong: c[1].toFixed(4) });
+    E.clear();
     items.forEach(it => {
       const lat = Number(it.gpslati), lng = Number(it.gpslong);
       if (isNaN(lat) || isNaN(lng)) return;
       const code = String(it.citycode ?? $("city").value);
       const cityName = (cityList.find(x => x.code === code) || {}).name || "";
       const stop = { cityCode: code, cityName, nodeid: String(it.nodeid), nodenm: String(it.nodenm), nodeno: String(it.nodeno ?? "") };
-      const m = L.circleMarker([lat, lng], { radius: 11, color: "#fff", weight: 3, fillColor: "#1d4ed8", fillOpacity: 1 });
-      m.on("click", () => m.bindPopup(mapPopup(stop, m)).openPopup());
-      m.addTo(mapLayer);
+      E.marker(lat, lng, () => mapPopup(stop));
     });
     $("mapMsg").textContent = items.length ? `정류장 ${items.length}곳 (빨간 동그라미 주변 500m)` : "이 근처에는 정류장이 없습니다. 지도를 움직여 다시 찾아 보세요.";
   } catch (e) { $("mapMsg").className = "sub err"; $("mapMsg").textContent = e.message; }
 }
 
-function mapPopup(stop, marker) {
+function mapPopup(stop) {
   const box = document.createElement("div");
   box.className = "pop";
   const draw = () => {
@@ -706,7 +765,7 @@ $("mapMe").onclick = () => {
   if (!navigator.geolocation) { $("mapMsg").className = "sub err"; $("mapMsg").textContent = "이 기기에서는 위치를 알 수 없습니다."; return; }
   $("mapMsg").className = "sub"; $("mapMsg").textContent = "내 위치를 찾는 중…";
   navigator.geolocation.getCurrentPosition(
-    pos => { map.setView([pos.coords.latitude, pos.coords.longitude], 17); mapSearch(); },
+    pos => { if (!E) return; E.setView(pos.coords.latitude, pos.coords.longitude, 17); mapSearch(); },
     () => { $("mapMsg").className = "sub err"; $("mapMsg").textContent = "위치를 가져오지 못했습니다. 위치 권한을 허용했는지 확인해 주세요. (앱은 새 버전 설치가 필요합니다)"; },
     { enableHighAccuracy: true, timeout: 15000 });
 };
@@ -1027,7 +1086,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v17 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v18 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
