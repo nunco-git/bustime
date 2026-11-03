@@ -125,7 +125,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
     </details>
 
     <details class="grp">
-      <summary>📳 진동 · 🔁 반복</summary>
+      <summary>📳 진동 · 🔁 반복 (새 알람 기본값)</summary>
       <label>진동</label>
       <div class="row">
         <button id="vibToggle">꺼짐</button>
@@ -248,13 +248,18 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
 
 <div class="modal" id="amModal" hidden>
   <div class="box">
-    <b style="font-size:1.2rem" id="amTitle">🔔 알람 설정</b>
+    <b style="font-size:1.2rem">🔔 알람 설정</b>
     <div class="sub" id="amSub" style="margin-top:.3rem"></div>
     <label for="amMin">도착 몇 분 전에 안내할까요?</label>
     <select id="amMin"></select>
-    <div class="sub" style="margin-top:4px">안내 시간은 모든 버스에 똑같이 적용됩니다. (5분 ~ 20분 전)</div>
+    <label>안내 방법 (눌러서 켜고 끄기)</label>
+    <div class="row"><button id="amVoice">🔊 음성: 켜짐</button><button id="amVib">📳 진동: 켜짐</button></div>
+    <label>반복 안내 (버스가 올 때까지 다시 알려 줌)</label>
+    <div class="row"><select id="amRep"></select><select id="amGap"></select></div>
+    <div class="sub err" id="amErr" style="margin-top:6px"></div>
     <div class="row" style="margin-top:12px">
       <button id="amOk">알람 켜기</button>
+      <button class="ghost" id="amOff" hidden>알람 끄기</button>
       <button class="ghost" id="amCancel">취소</button>
     </div>
   </div>
@@ -322,7 +327,7 @@ const announced = {};          // 버스별 안내 기록 {횟수, 마지막 시
 let acctOn = ls("acctOn", false);          // 이메일 계정으로 로그인해 설정을 클라우드와 동기화 중인지
 const clampMin = n => Math.min(20, Math.max(5, Number(n) || 5));   // 안내 시간은 5~20분 전
 const localCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: clampMin(ls("busAlertMin", 5)),
-  hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null) });
+  hear: ls("busAlertHear", true), vib: ls("busAlertVib", true), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null), bset: ls("busAlertBset", {}) });
 let CFG = localCfg();
 if (acctOn) { const c = ls("acctCfg", null); if (c) CFG = c; }   // 인터넷이 없어도 마지막 설정 사용
 let FB = null, authUser = null, unsubA = null, lastSig = "";
@@ -330,7 +335,7 @@ let FB = null, authUser = null, unsubA = null, lastSig = "";
 // 이 기기에서 음성 안내를 낼지: 계정 전체 설정(hear)이 켜져 있고, 이 기기에서 '듣지 않기'를 고르지 않았을 때
 const listen = () => CFG.hear !== false && !ls("muteHere", false);
 const alertCfg = () => CFG;
-const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid]);
+const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid, CFG.bset]);
 const sameStop = (a, b) => a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode);
 const activeStop = () => CFG.stop || current;
 
@@ -341,6 +346,7 @@ function saveAlert(p, extra) {      // extra: 같은 쓰기에 함께 보낼 계
     if ("buses" in p) lsSet("busAlertBuses", p.buses);
     if ("min" in p) lsSet("busAlertMin", p.min);
     if ("vib" in p) lsSet("busAlertVib", p.vib);
+    if ("bset" in p) lsSet("busAlertBset", p.bset);
     if ("hear" in p) lsSet("busAlertHear", p.hear);
     if ("stop" in p) lsSet("busAlertStop", p.stop);
     if ("rep" in p) lsSet("busAlertRep", p.rep);
@@ -359,13 +365,13 @@ async function cloudWrite(p) {
   if (!FB || !FB.auth.currentUser) return;
   try {
     await FB.setDoc(FB.doc(FB.db, "accounts", FB.auth.currentUser.uid),
-      { ...p, updatedAt: FB.serverTimestamp() }, { merge: true });
+      { ...p, updatedAt: FB.serverTimestamp() }, { mergeFields: [...Object.keys(p), "updatedAt"] });   // 버스별 설정(bset)처럼 지운 항목이 계정에도 지워지도록 항목 통째로 교체
     famMsg("");
   } catch (e) { famMsg(errText(e), true); }
 }
 
 function applyRemote(d) {
-  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: !!d.vib,
+  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: d.vib !== false, bset: (d.bset && typeof d.bset === "object") ? d.bset : {},
           rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
   if (d.scale) setScale(d.scale, true);
@@ -641,16 +647,26 @@ function buzz() {
   try { if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]); } catch {}
 }
 
+// 버스별 안내 설정(없으면 기본값). bset[번호] = { m:몇 분 전, v:음성, z:진동, r:반복 횟수, g:반복 간격(초) }
+function busCfgOf(no) {
+  const e = (CFG.bset || {})[norm(no)];
+  if (e) return { min: clampMin(e.m), voice: e.v !== false, vib: e.z !== false,
+    rep: Math.min(20, Math.max(1, Number(e.r) || 1)), gap: Math.min(600, Math.max(10, Number(e.g) || 60)) };
+  return { min: clampMin(CFG.min), voice: true, vib: !!CFG.vib, rep: Math.min(20, Math.max(1, Number(CFG.rep) || 1)), gap: Math.min(600, Math.max(10, Number(CFG.gap) || 60)) };
+}
+const selBusList = () => String(CFG.buses || "").split(",").map(x => x.trim()).filter(Boolean);
+const watchList = () => selBusList().map(no => ({ no: norm(no), ...busCfgOf(no) }));
+
 function checkAlerts(items) {
   const c = alertCfg();
   if (!c.on || NATIVE || (acctOn && !listen())) return;   // 앱에서는 백그라운드 서비스가 음성 안내를 담당
-  const wanted = String(c.buses).split(",").map(norm).filter(Boolean);
+  const wanted = selBusList().map(norm);
   if (!wanted.length) return;
-  const limit = Number(c.min) * 60, total = Math.max(1, Number(c.rep) || 1), gapMs = (Number(c.gap) || 60) * 1000;
   const prefix = current.cityCode + ":" + current.nodeid + ":";
   const seen = new Set(), now = Date.now();
   for (const b of items) {
     if (!wanted.includes(norm(b.routeno))) continue;
+    const bc = busCfgOf(b.routeno), limit = bc.min * 60, total = bc.rep, gapMs = bc.gap * 1000;
     const key = prefix + norm(b.routeno);
     seen.add(key);
     const sec = Number(b.arrtime ?? 1e9);
@@ -660,8 +676,8 @@ function checkAlerts(items) {
         announced[key] = { n: a.n + 1, t: now };
         const m = Math.round(sec / 60);
         const when = m <= 1 ? "곧 도착합니다" : `약 ${m}분 후 도착합니다`;
-        if (c.vib) buzz();
-        speak(`${busLabel(b.routeno)}가 ${current.nodenm} 정류장에 ${when}.`);
+        if (bc.vib) buzz();
+        if (bc.voice) speak(`${busLabel(b.routeno)}가 ${current.nodenm} 정류장에 ${when}.`);
       }
     } else if (sec > limit + 120) {
       delete announced[key];       // 다음 버스를 위해 초기화
@@ -710,7 +726,9 @@ function syncNative() {
   const buses = String(c.buses).split(",").map(s => s.trim()).filter(Boolean).join(",");
   try {
     if (c.on && buses && stop) {
-      if (typeof AndroidBridge.startWatch2 === "function")
+      if (typeof AndroidBridge.startWatch3 === "function")   // 버스마다 다른 설정
+        AndroidBridge.startWatch3(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), JSON.stringify(watchList()));
+      else if (typeof AndroidBridge.startWatch2 === "function")
         AndroidBridge.startWatch2(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(c.min),
           !!c.vib, Number(c.rep) || 1, Number(c.gap) || 60);
       else   // 예전 앱(진동/반복 미지원)
@@ -942,10 +960,11 @@ function renderBusChips() {
 }
 
 function toggleBus(no) {
-  const sel = String(CFG.buses || "").split(",").map(x => x.trim()).filter(Boolean);
+  const sel = selBusList();
   const i = sel.findIndex(x => norm(x) === norm(no));
-  if (i >= 0) sel.splice(i, 1); else sel.push(no);
-  saveAlert({ buses: sel.join(", ") });
+  const bset = { ...(CFG.bset || {}) };
+  if (i >= 0) { sel.splice(i, 1); delete bset[norm(no)]; } else sel.push(no);
+  saveAlert({ buses: sel.join(", "), bset });
 }
 
 /* ================= 안내받을 정류장(설정창) ================= */
@@ -1021,38 +1040,63 @@ async function showArrivals(stop) {
   }, REFRESH_SEC * 1000);
 }
 
-let amBus = null;
+let amBus = null, am = { voice: true, vib: true };
+function amPaint() {
+  $("amVoice").textContent = am.voice ? "🔊 음성: 켜짐" : "🔊 음성: 꺼짐";
+  $("amVoice").className = am.voice ? "" : "ghost";
+  $("amVib").textContent = am.vib ? "📳 진동: 켜짐" : "📳 진동: 꺼짐";
+  $("amVib").className = am.vib ? "" : "ghost";
+}
 function openAlarmModal(no) {
   amBus = String(no);
-  const sel = $("amMin");
-  if (!sel.options.length) for (let i = 5; i <= 20; i++) sel.add(new Option(i + "분 전", String(i)));
-  sel.value = String(clampMin(CFG.min));
+  const fill = (id, vals, fmt) => { const el = $(id); if (!el.options.length) vals.forEach(v => el.add(new Option(fmt(v), String(v)))); };
+  fill("amMin", Array.from({ length: 16 }, (_, i) => i + 5), v => v + "분 전");
+  fill("amRep", [1, 2, 3, 5, 10], v => v === 1 ? "한 번만" : v + "번 반복");
+  fill("amGap", [30, 60, 120], v => v === 30 ? "30초마다" : v / 60 + "분마다");
+  const on = alarmOn(no), bc = busCfgOf(no);
+  am = on ? { voice: bc.voice, vib: bc.vib } : { voice: true, vib: true };      // 새 알람은 음성·진동 모두 켜진 상태로 시작
+  $("amMin").value = String(bc.min);
+  $("amRep").value = String([1, 2, 3, 5, 10].includes(bc.rep) ? bc.rep : 1);
+  $("amGap").value = String([30, 60, 120].includes(bc.gap) ? bc.gap : 60);
+  $("amErr").textContent = "";
+  $("amOff").hidden = !on;
+  $("amOk").textContent = on ? "저장" : "알람 켜기";
   $("amSub").textContent = `${busLabel(no)} · ${current ? current.nodenm : ""}`;
+  amPaint();
   $("amModal").hidden = false;
 }
-$("amOk").onclick = () => { $("amModal").hidden = true; if (amBus) alarmBus(amBus, Number($("amMin").value)); amBus = null; };
+$("amVoice").onclick = () => { am.voice = !am.voice; amPaint(); };
+$("amVib").onclick = () => { am.vib = !am.vib; amPaint(); };
+$("amOk").onclick = () => {
+  if (!am.voice && !am.vib) { $("amErr").textContent = "음성이나 진동 중 하나는 켜 주세요."; return; }
+  $("amModal").hidden = true;
+  if (amBus) alarmBus(amBus, { min: Number($("amMin").value), voice: am.voice, vib: am.vib, rep: Number($("amRep").value), gap: Number($("amGap").value) });
+  amBus = null;
+};
+$("amOff").onclick = () => { $("amModal").hidden = true; if (amBus) alarmBus(amBus, null); amBus = null; };
 $("amCancel").onclick = () => { $("amModal").hidden = true; amBus = null; };
 $("amModal").addEventListener("click", e => { if (e.target === $("amModal")) { $("amModal").hidden = true; amBus = null; } });
 
 // 도착정보 목록에서 바로 알람 설정: 지금 보는 정류장을 안내 정류장으로(즐겨찾기에 없으면 추가) 하고 그 버스를 켜고 끔
 const alarmOn = no => !!CFG.on && sameStop(CFG.stop, current) && String(CFG.buses || "").split(",").map(norm).includes(norm(no));
-function alarmBus(no, min) {
+// o가 있으면 그 설정으로 알람을 켜고(저장), 없으면 알람을 끔
+function alarmBus(no, o) {
   const st = current;
   if (!st) return;
   const stop = stopOut(st);
-  if (!isFav(stop)) { const f = favs(); f.push(stop); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
+  if (o && !isFav(stop)) { const f = favs(); f.push(stop); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
   const same = sameStop(CFG.stop, stop);
-  const sel = same ? String(CFG.buses || "").split(",").map(x => x.trim()).filter(Boolean) : [];   // 다른 정류장이면 새로 시작
-  const i = sel.findIndex(x => norm(x) === norm(no));
-  const turnOn = !(same && CFG.on && i >= 0);
-  if (turnOn) { if (i < 0) sel.push(String(no)); } else sel.splice(i, 1);
-  const p = { buses: sel.join(", ") };
+  const sel = same ? selBusList() : [];                    // 다른 정류장이면 새로 시작
+  const bset = same ? { ...(CFG.bset || {}) } : {};
+  const key = norm(no), i = sel.findIndex(x => norm(x) === key);
+  if (o) { if (i < 0) sel.push(String(no)); bset[key] = { m: clampMin(o.min), v: !!o.voice, z: !!o.vib, r: o.rep, g: o.gap }; }
+  else { if (i >= 0) sel.splice(i, 1); delete bset[key]; }
+  const p = { buses: sel.join(", "), bset };
   if (!same) p.stop = stop;
-  if (turnOn && !CFG.on) p.on = true;
-  if (turnOn && min) p.min = clampMin(min);
+  if (o && !CFG.on) p.on = true;
   saveAlert(p);
-  if (turnOn && p.on && (!acctOn || listen())) { if (NATIVE) AndroidBridge.speakTest(); else { speak("음성 안내를 켰습니다."); keepAwake(); } }
-  if (turnOn && p.on) askBattery();
+  if (o && p.on && (!acctOn || listen())) { if (NATIVE) AndroidBridge.speakTest(); else { speak("음성 안내를 켰습니다."); keepAwake(); } }
+  if (o && p.on) askBattery();
   loadArrivals();
 }
 
@@ -1187,7 +1231,7 @@ async function startAcct(user) {
   if (!snap.exists()) {           // 처음 로그인: 이 기기의 현재 설정을 계정에 올림
     await FB.setDoc(ref, { ...(CFG.stop ? { stop: stopOut(CFG.stop) } : {}), buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
       hear: CFG.hear !== false, scale: Number(ls("busScale", 1.5)),
-      vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60,
+      vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, bset: CFG.bset || {},
       favStops: localFavStops, favCities: localFavCities, updatedAt: FB.serverTimestamp() });
   } else {                        // 계정에 아직 없는 항목만 이 기기 것으로 채움
     const d = snap.data(), add = {};
@@ -1224,10 +1268,7 @@ document.addEventListener("click", e => {
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
   if (d.bus != null) toggleBus(d.bus);
-  if (d.alarm != null) {
-    if (alarmOn(d.alarm)) alarmBus(d.alarm);            // 이미 켜진 버스는 바로 해제
-    else openAlarmModal(d.alarm);                       // 아니면 몇 분 전에 안내할지 물어봄
-  }
+  if (d.alarm != null) openAlarmModal(d.alarm);         // 버스마다 안내 시간·방법·반복을 고르는 창
   if (d.asset != null) {      // 설정창 검색 결과에서 지정
     const x = window._asStops[d.asset];
     const f = favs();
@@ -1319,7 +1360,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v39 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v40 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

@@ -143,6 +143,18 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.startForegroundService(this@MainActivity, i)
         }
 
+        /** 버스마다 다른 안내 설정(JSON 배열: no, min, voice, vib, rep, gap)을 받는 최신 버전 */
+        @JavascriptInterface
+        fun startWatch3(cityCode: String, nodeId: String, nodeNm: String, cfgJson: String) {
+            val i = Intent(this@MainActivity, WatchService::class.java)
+                .setAction(WatchService.ACTION_START)
+                .putExtra("cityCode", cityCode)
+                .putExtra("nodeId", nodeId)
+                .putExtra("nodeNm", nodeNm)
+                .putExtra("cfgJson", cfgJson)
+            ContextCompat.startForegroundService(this@MainActivity, i)
+        }
+
         /** 배터리 사용 제한이 풀려 있는지 (제한이 있으면 화면이 꺼졌을 때 안내가 늦거나 멈출 수 있음) */
         @JavascriptInterface
         fun batteryOk(): Boolean {

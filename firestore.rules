@@ -7,7 +7,7 @@ service cloud.firestore {
     match /accounts/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['buses', 'min', 'on', 'vib', 'rep', 'gap', 'hear', 'scale', 'stop', 'favStops', 'favCities', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['buses', 'min', 'on', 'vib', 'rep', 'gap', 'hear', 'scale', 'stop', 'favStops', 'favCities', 'bset', 'updatedAt'])
         && (!('buses' in request.resource.data) || (request.resource.data.buses is string && request.resource.data.buses.size() <= 100))
         && (!('min' in request.resource.data) || (request.resource.data.min is number && request.resource.data.min >= 1 && request.resource.data.min <= 60))
         && (!('on' in request.resource.data) || request.resource.data.on is bool)
@@ -18,6 +18,7 @@ service cloud.firestore {
         && (!('favCities' in request.resource.data) || (request.resource.data.favCities is list && request.resource.data.favCities.size() <= 3))
         && (!('hear' in request.resource.data) || request.resource.data.hear is bool)
         && (!('scale' in request.resource.data) || (request.resource.data.scale is number && request.resource.data.scale >= 0.5 && request.resource.data.scale <= 3))
+        && (!('bset' in request.resource.data) || (request.resource.data.bset is map && request.resource.data.bset.size() <= 30))
         && (!('stop' in request.resource.data) || request.resource.data.stop == null || request.resource.data.stop is map);
       allow delete: if false;
     }

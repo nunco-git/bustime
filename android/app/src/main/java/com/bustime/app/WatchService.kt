@@ -53,11 +53,9 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
     private var cityCode = ""
     private var nodeId = ""
     private var nodeNm = ""
-    private var wanted: Set<String> = emptySet()
-    private var minutes = 5
-    private var vibrate = false
-    private var repeatTotal = 1                     // 한 버스당 안내 횟수
-    private var gapMs = 60_000L                     // 반복 간격
+    /** 버스 한 대(노선)마다 따로 정하는 안내 설정 */
+    private data class BusCfg(val minutes: Int, val voice: Boolean, val vibrate: Boolean, val repeat: Int, val gapMs: Long)
+    private var cfgs: Map<String, BusCfg> = emptyMap()
     private val counts = mutableMapOf<String, Int>()
     private val lastAt = mutableMapOf<String, Long>()
     private var startedAt = 0L
@@ -85,22 +83,45 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
         cityCode = intent.getStringExtra("cityCode") ?: ""
         nodeId = intent.getStringExtra("nodeId") ?: ""
         nodeNm = intent.getStringExtra("nodeNm") ?: ""
-        val buses = intent.getStringExtra("buses") ?: ""
-        minutes = intent.getIntExtra("minutes", 5)
-        wanted = buses.split(",")
-            .map { it.replace(Regex("\\s+"), "") }
-            .filter { it.isNotEmpty() }
-            .toSet()
-        vibrate = intent.getBooleanExtra("vibrate", false)
-        repeatTotal = intent.getIntExtra("repeat", 1).coerceIn(1, 20)
-        gapMs = intent.getIntExtra("gapSec", 60).coerceIn(10, 600) * 1000L
+        val json = intent.getStringExtra("cfgJson")
+        val map = mutableMapOf<String, BusCfg>()
+        if (json != null) {
+            try {
+                val arr = JSONArray(json)
+                for (k in 0 until arr.length()) {
+                    val o = arr.optJSONObject(k) ?: continue
+                    val no = o.optString("no").replace(Regex("\\s+"), "")
+                    if (no.isEmpty()) continue
+                    map[no] = BusCfg(
+                        o.optInt("min", 5).coerceIn(1, 60),
+                        o.optBoolean("voice", true),
+                        o.optBoolean("vib", false),
+                        o.optInt("rep", 1).coerceIn(1, 20),
+                        o.optInt("gap", 60).coerceIn(10, 600) * 1000L
+                    )
+                }
+            } catch (e: Exception) { }
+        } else {   // 예전 방식(모든 버스에 같은 설정)
+            val c = BusCfg(
+                intent.getIntExtra("minutes", 5),
+                true,
+                intent.getBooleanExtra("vibrate", false),
+                intent.getIntExtra("repeat", 1).coerceIn(1, 20),
+                intent.getIntExtra("gapSec", 60).coerceIn(10, 600) * 1000L
+            )
+            (intent.getStringExtra("buses") ?: "").split(",")
+                .map { it.replace(Regex("\\s+"), "") }
+                .filter { it.isNotEmpty() }
+                .forEach { map[it] = c }
+        }
+        cfgs = map
         counts.clear()
         lastAt.clear()
         startedAt = SystemClock.elapsedRealtime()
 
         createChannel()
         val noti = buildNotification(
-            "$nodeNm · $buses · ${minutes}분 전 안내" + (if (repeatTotal > 1) " · ${repeatTotal}회 반복" else "") + (if (vibrate) " · 진동" else "")
+            "$nodeNm · " + cfgs.entries.joinToString(", ") { "${it.key}번(${it.value.minutes}분 전)" }
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTI_ID, noti, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -199,24 +220,24 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
 
     /** 메인 스레드: 안내 조건 확인 (반복 안내 포함) */
     private fun evaluate(items: List<Pair<String, Int>>) {
-        val limit = minutes * 60
         val now = SystemClock.elapsedRealtime()
         val seen = mutableSetOf<String>()
         for ((no, sec) in items) {
             val n = no.replace(Regex("\\s+"), "")
-            if (!wanted.contains(n)) continue
+            val cfg = cfgs[n] ?: continue
             seen.add(n)
+            val limit = cfg.minutes * 60
             if (sec <= limit) {
                 val cnt = counts[n] ?: 0
                 val last = lastAt[n] ?: 0L
                 // 조회 주기(30초)에 약간의 오차가 있어 5초 여유를 둠
-                if (cnt < repeatTotal && (cnt == 0 || now - last >= gapMs - 5_000L)) {
+                if (cnt < cfg.repeat && (cnt == 0 || now - last >= cfg.gapMs - 5_000L)) {
                     counts[n] = cnt + 1
                     lastAt[n] = now
                     val m = Math.round(sec / 60.0).toInt()
                     val whenText = if (m <= 1) "곧 도착합니다" else "약 ${m}분 후 도착합니다"
-                    if (vibrate) Buzz.vibrate(this)
-                    speak("${busLabel(no)}가 $nodeNm 정류장에 $whenText.")
+                    if (cfg.vibrate) Buzz.vibrate(this)
+                    if (cfg.voice) speak("${busLabel(no)}가 $nodeNm 정류장에 $whenText.")
                 }
             } else if (sec > limit + 120) {
                 counts.remove(n)      // 다음 버스를 위해 초기화

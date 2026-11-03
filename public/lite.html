@@ -67,8 +67,15 @@
     <div class="sub" id="amSub"></div>
     <label for="amMin">도착 몇 분 전에 안내할까요?</label>
     <select id="amMin"></select>
-    <div class="sub">안내 시간은 모든 버스에 똑같이 적용됩니다. (5분 ~ 20분 전)</div>
+    <label>안내 방법 (눌러서 켜고 끄기)</label>
+    <button id="amVoice">🔊 음성: 켜짐</button>
+    <button id="amVib">📳 진동: 켜짐</button>
+    <label>반복 안내</label>
+    <select id="amRep"></select>
+    <select id="amGap"></select>
+    <div class="err" id="amErr"></div>
     <button id="amOk">알람 켜기</button>
+    <button class="g" id="amOff" hidden>알람 끄기</button>
     <button class="g" id="amCancel">취소</button>
   </div>
 </div>
@@ -132,7 +139,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v14 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v15 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -213,8 +220,8 @@ function fillDirs(root) {
 /* ---------- 설정(CFG): 기기 저장 또는 계정 ---------- */
 function localCfg() {
   return { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: clampMin(ls("busAlertMin", 5)),
-    hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)),
-    gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null) };
+    hear: ls("busAlertHear", true), vib: ls("busAlertVib", true), rep: Number(ls("busAlertRep", 1)),
+    gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null), bset: ls("busAlertBset", {}) };
 }
 var acctOn = ls("acctOn", false), CFG = localCfg();
 if (acctOn) { var cc = ls("acctCfg", null); if (cc) CFG = cc; }
@@ -224,7 +231,7 @@ var current = null, timer = null, watchStart = 0;
 function listen() { return CFG.hear !== false && !ls("muteHere", false); }
 function stopKey(s) { return s ? String(s.cityCode) + ":" + String(s.nodeid) : ""; }
 function sameStop(a, b) { return !!(a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode)); }
-function sig() { return JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && stopKey(CFG.stop)]); }
+function sig() { return JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && stopKey(CFG.stop), CFG.bset]); }
 function favs() { return ls("busFavs", []); }
 function stopOut(s) {
   return { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
@@ -264,14 +271,14 @@ function cloudWrite(p) {
   var d = {}, k;
   for (k in p) if (p.hasOwnProperty(k)) d[k] = p[k];
   d.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
-  db.collection("accounts").doc(fbUser.uid).set(d, { merge: true }).then(function () { setMsg(""); }, function (e) { setMsg(errText(e), true); });
+  db.collection("accounts").doc(fbUser.uid).set(d, { mergeFields: Object.keys(d) }).then(function () { setMsg(""); }, function (e) { setMsg(errText(e), true); });
 }
 
 function saveAlert(p, extra) {
   var k;
   for (k in p) if (p.hasOwnProperty(k)) CFG[k] = p[k];
   if (!acctOn) {
-    var keys = { on: "busAlertOn", buses: "busAlertBuses", min: "busAlertMin", vib: "busAlertVib", rep: "busAlertRep", gap: "busAlertGap", hear: "busAlertHear", stop: "busAlertStop" };
+    var keys = { on: "busAlertOn", buses: "busAlertBuses", min: "busAlertMin", vib: "busAlertVib", rep: "busAlertRep", gap: "busAlertGap", hear: "busAlertHear", stop: "busAlertStop", bset: "busAlertBset" };
     for (k in p) if (p.hasOwnProperty(k) && keys[k]) lsSet(keys[k], p[k]);
   } else {
     if (extra) { var m = {}; for (k in p) if (p.hasOwnProperty(k)) m[k] = p[k]; for (k in extra) if (extra.hasOwnProperty(k)) m[k] = extra[k]; cloudWrite(m); }
@@ -284,8 +291,8 @@ function saveAlert(p, extra) {
 }
 
 function applyRemote(d) {
-  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: !!d.vib,
-    rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
+  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: d.vib !== false,
+    rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null, bset: (d.bset && typeof d.bset === "object") ? d.bset : {} };
   lsSet("acctCfg", CFG);
   if (d.scale) setScale(d.scale);
   if (toArr(d.favStops).length || (d.favStops && d.favStops.length === 0)) lsSet("busFavs", d.favStops);
@@ -298,6 +305,17 @@ function applyRemote(d) {
 }
 
 /* ---------- 안드로이드 앱: 백그라운드 음성 안내 서비스 ---------- */
+function busCfgOf(no) {
+  var e = (CFG.bset || {})[norm(no)];
+  function cl(v, a, b, d) { v = Number(v) || d; return Math.min(b, Math.max(a, v)); }
+  if (e) return { min: clampMin(e.m), voice: e.v !== false, vib: e.z !== false, rep: cl(e.r, 1, 20, 1), gap: cl(e.g, 10, 600, 60) };
+  return { min: clampMin(CFG.min), voice: true, vib: !!CFG.vib, rep: cl(CFG.rep, 1, 20, 1), gap: cl(CFG.gap, 10, 600, 60) };
+}
+function watchList() {
+  var sel = selBuses(), out = [], i, c;
+  for (i = 0; i < sel.length; i++) { c = busCfgOf(sel[i]); out.push({ no: norm(sel[i]), min: c.min, voice: c.voice, vib: c.vib, rep: c.rep, gap: c.gap }); }
+  return out;
+}
 function syncNative() {
   if (!NATIVE) return;
   try {
@@ -305,7 +323,9 @@ function syncNative() {
     var stop = CFG.stop || current;
     var buses = String(CFG.buses).split(",").map(function (s) { return s.replace(/^\s+|\s+$/g, ""); }).filter(function (s) { return s; }).join(",");
     if (CFG.on && buses && stop) {
-      if (typeof AndroidBridge.startWatch2 === "function")
+      if (typeof AndroidBridge.startWatch3 === "function")
+        AndroidBridge.startWatch3(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), JSON.stringify(watchList()));
+      else if (typeof AndroidBridge.startWatch2 === "function")
         AndroidBridge.startWatch2(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(CFG.min), !!CFG.vib, Number(CFG.rep) || 1, Number(CFG.gap) || 60);
       else AndroidBridge.startWatch(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(CFG.min));
     } else AndroidBridge.stopWatch();
@@ -366,30 +386,52 @@ function alarmOn(no) {
   for (i = 0; i < sel.length; i++) if (norm(sel[i]) === norm(no)) return true;
   return false;
 }
+var am = { voice: true, vib: true };
+function amPaint() {
+  $("amVoice").innerHTML = am.voice ? "🔊 음성: 켜짐" : "🔊 음성: 꺼짐";
+  $("amVoice").className = am.voice ? "" : "g";
+  $("amVib").innerHTML = am.vib ? "📳 진동: 켜짐" : "📳 진동: 꺼짐";
+  $("amVib").className = am.vib ? "" : "g";
+}
+function fillSel(id, vals, fmt) {
+  var el = $(id), i;
+  if (!el.options.length) for (i = 0; i < vals.length; i++) el.options[el.options.length] = new Option(fmt(vals[i]), String(vals[i]));
+}
+function inList(v, l) { var i; for (i = 0; i < l.length; i++) if (l[i] === v) return true; return false; }
 function openAlarmModal(no) {
-  var sel = $("amMin"), i;
+  var i, mins = [], on = alarmOn(no), bc = busCfgOf(no);
   amBus = String(no);
-  if (!sel.options.length) for (i = 5; i <= 20; i++) sel.options[sel.options.length] = new Option(i + "분 전", String(i));
-  sel.value = String(clampMin(CFG.min));
+  for (i = 5; i <= 20; i++) mins.push(i);
+  fillSel("amMin", mins, function (v) { return v + "분 전"; });
+  fillSel("amRep", [1, 2, 3, 5, 10], function (v) { return v === 1 ? "한 번만" : v + "번 반복"; });
+  fillSel("amGap", [30, 60, 120], function (v) { return v === 30 ? "30초마다" : (v / 60) + "분마다"; });
+  am = on ? { voice: bc.voice, vib: bc.vib } : { voice: true, vib: true };
+  $("amMin").value = String(bc.min);
+  $("amRep").value = String(inList(bc.rep, [1, 2, 3, 5, 10]) ? bc.rep : 1);
+  $("amGap").value = String(inList(bc.gap, [30, 60, 120]) ? bc.gap : 60);
+  $("amErr").innerHTML = "";
+  $("amOff").hidden = !on;
+  $("amOk").innerHTML = on ? "저장" : "알람 켜기";
   $("amSub").textContent = no + "번 · " + (current ? current.nodenm : "");
+  amPaint();
   $("amModal").hidden = false;
 }
-function alarmBus(no, min) {
-  var st = current, i, idx = -1;
+function alarmBus(no, o) {
+  var st = current, i, idx = -1, k;
   if (!st) return;
   var stop = stopOut(st), f = favs(), has = false;
   for (i = 0; i < f.length; i++) if (String(f[i].nodeid) === stop.nodeid && String(f[i].cityCode) === stop.cityCode) has = true;
-  if (!has) { f.push(stop); saveFavs(f); }
-  var same = sameStop(CFG.stop, stop), sel = same ? selBuses() : [];
-  for (i = 0; i < sel.length; i++) if (norm(sel[i]) === norm(no)) idx = i;
-  var turnOn = !(same && CFG.on && idx >= 0), p = {};
-  if (turnOn) { if (idx < 0) sel.push(String(no)); } else sel.splice(idx, 1);
-  p.buses = sel.join(", ");
+  if (o && !has) { f.push(stop); saveFavs(f); }
+  var same = sameStop(CFG.stop, stop), sel = same ? selBuses() : [], bset = {}, key = norm(no), p = {};
+  if (same) for (k in (CFG.bset || {})) if (CFG.bset.hasOwnProperty(k)) bset[k] = CFG.bset[k];
+  for (i = 0; i < sel.length; i++) if (norm(sel[i]) === key) idx = i;
+  if (o) { if (idx < 0) sel.push(String(no)); bset[key] = { m: clampMin(o.min), v: !!o.voice, z: !!o.vib, r: o.rep, g: o.gap }; }
+  else { if (idx >= 0) sel.splice(idx, 1); delete bset[key]; }
+  p.buses = sel.join(", "); p.bset = bset;
   if (!same) p.stop = stop;
-  if (turnOn && !CFG.on) p.on = true;
-  if (turnOn && min) p.min = clampMin(min);
+  if (o && !CFG.on) p.on = true;
   saveAlert(p);
-  if (turnOn && p.on && NATIVE && listen()) { try { AndroidBridge.speakTest(); } catch (e) {} }
+  if (o && p.on && NATIVE && listen()) { try { AndroidBridge.speakTest(); } catch (e) {} }
   loadArrivals();
 }
 
@@ -491,10 +533,11 @@ function renderBusChips() {
   box.innerHTML = html;
 }
 function toggleBus(no) {
-  var sel = selBuses(), i, idx = -1;
+  var sel = selBuses(), i, idx = -1, bset = {}, k;
+  for (k in (CFG.bset || {})) if (CFG.bset.hasOwnProperty(k)) bset[k] = CFG.bset[k];
   for (i = 0; i < sel.length; i++) if (norm(sel[i]) === norm(no)) idx = i;
-  if (idx >= 0) sel.splice(idx, 1); else sel.push(no);
-  saveAlert({ buses: sel.join(", ") });
+  if (idx >= 0) { sel.splice(idx, 1); delete bset[norm(no)]; } else sel.push(no);
+  saveAlert({ buses: sel.join(", "), bset: bset });
 }
 
 /* ---------- 정류장 찾기 ---------- */
@@ -556,7 +599,7 @@ function startAcct(user) {
     var favOut = favs().map(stopOut);
     if (!snap.exists) {
       var first = { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on, hear: CFG.hear !== false, scale: Number(ls("busScale", 1.5)),
-        vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, favStops: favOut, favCities: ls("busFavCities", []), updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+        vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, bset: CFG.bset || {}, favStops: favOut, favCities: ls("busFavCities", []), updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
       if (CFG.stop) first.stop = stopOut(CFG.stop);
       return ref.set(first);
     }
@@ -595,7 +638,15 @@ function initFirebase() {
   } catch (e) { setMsg("로그인 기능을 시작하지 못했습니다: " + (e.message || e), true); }
 }
 
-$("amOk").onclick = function () { $("amModal").hidden = true; if (amBus) alarmBus(amBus, Number($("amMin").value)); amBus = null; };
+$("amVoice").onclick = function () { am.voice = !am.voice; amPaint(); };
+$("amVib").onclick = function () { am.vib = !am.vib; amPaint(); };
+$("amOk").onclick = function () {
+  if (!am.voice && !am.vib) { $("amErr").innerHTML = "음성이나 진동 중 하나는 켜 주세요."; return; }
+  $("amModal").hidden = true;
+  if (amBus) alarmBus(amBus, { min: Number($("amMin").value), voice: am.voice, vib: am.vib, rep: Number($("amRep").value), gap: Number($("amGap").value) });
+  amBus = null;
+};
+$("amOff").onclick = function () { $("amModal").hidden = true; if (amBus) alarmBus(amBus, null); amBus = null; };
 $("amCancel").onclick = function () { $("amModal").hidden = true; amBus = null; };
 
 document.addEventListener("visibilitychange", function () {
@@ -609,7 +660,7 @@ document.addEventListener("click", function (e) {
   if (!b || b === document) return;
   var al = b.getAttribute("data-alarm");
   if (al != null) {
-    if (alarmOn(al)) alarmBus(al); else openAlarmModal(al);
+    openAlarmModal(al);
     return;
   }
   var bs = b.getAttribute("data-bus");
