@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>버스 도착정보 (간단 화면)</title>
+<!-- 저사양/구형 폰용 간단 화면: 지도·노선 없이 도착정보와 음성 안내 설정만. 오래된 웹뷰에서도 돌도록 ES5 문법만 사용합니다. -->
+<style>
+  html { font-size: 24px; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font-family: sans-serif; background: #f3f4f6; color: #111827; line-height: 1.4; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 10px; }
+  .top { display: -webkit-box; display: flex; justify-content: space-between; align-items: center; margin: 4px 0 10px; }
+  h1 { font-size: 1.1rem; margin: 0; }
+  .card { background: #fff; border-radius: 12px; padding: 12px; margin-bottom: 10px; border: 1px solid #e5e7eb; }
+  button, select, input { font-size: 1rem; padding: .5rem .6rem; border: 2px solid #d1d5db; border-radius: 10px; font-family: inherit; }
+  button { background: #1d4ed8; color: #fff; border: 0; margin: 3px 3px 3px 0; }
+  button.g { background: #e0e7ff; color: #1d4ed8; }
+  button.on { background: #16a34a; color: #fff; }
+  button.sel { outline: 3px solid #f59e0b; }
+  select, input { width: 100%; background: #fff; color: #111827; margin-top: 4px; }
+  label { display: block; font-weight: bold; margin: .7rem 0 .2rem; }
+  .sub { color: #4b5563; font-size: .7rem; }
+  .err { color: #b91c1c; }
+  .big { font-size: 1.3rem; font-weight: bold; }
+  .bus { display: -webkit-box; display: flex; justify-content: space-between; align-items: center; padding: .5rem 0; border-bottom: 1px solid #e5e7eb; }
+  .bus.watch { background: #fef9c3; padding-left: 6px; padding-right: 6px; }
+  .no { font-size: 1.4rem; font-weight: bold; }
+  .min { font-size: 1.4rem; font-weight: bold; color: #1d4ed8; text-align: right; }
+  .row { margin-top: 4px; }
+  .fav { display: -webkit-box; display: flex; justify-content: space-between; align-items: center; padding: .4rem 0; border-bottom: 1px solid #e5e7eb; }
+  a { color: #1d4ed8; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="main">
+    <div class="top">
+      <h1>🚌 버스 도착정보</h1>
+      <button class="g" id="gear">⚙ 설정</button>
+    </div>
+    <div class="card">
+      <div class="big" id="stopName">정류장을 정해 주세요</div>
+      <div id="arr"></div>
+      <div class="sub" id="upd"></div>
+      <button id="refresh">새로고침</button>
+    </div>
+    <div class="card" id="favBox" hidden>
+      <b>즐겨찾기 정류장</b>
+      <div id="favs"></div>
+    </div>
+  </div>
+
+  <div id="set" hidden>
+    <div class="top">
+      <h1>⚙ 설정</h1>
+      <button class="g" id="back">← 돌아가기</button>
+    </div>
+    <div class="card">
+      <b>글자 크기</b>
+      <div class="row" id="fontBtns">
+        <button class="g" data-scale="1">작게</button>
+        <button class="g" data-scale="1.25">보통</button>
+        <button class="g" data-scale="1.5">크게</button>
+        <button class="g" data-scale="1.75">아주 크게</button>
+      </div>
+
+      <label>🔔 음성 안내</label>
+      <button id="alertToggle">꺼짐</button>
+      <button class="g" id="voiceTest">음성 테스트</button>
+      <label for="alertBus">안내받을 버스 번호 (여러 개는 쉼표로)</label>
+      <input id="alertBus" placeholder="예: 150, 207">
+      <label for="alertStop">안내받을 정류장</label>
+      <select id="alertStop"></select>
+      <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
+      <select id="alertMin">
+        <option>1</option><option>2</option><option>3</option><option>5</option>
+        <option>7</option><option>10</option><option>15</option>
+      </select>
+      <label>📳 진동</label>
+      <button id="vibToggle">꺼짐</button>
+      <button class="g" id="vibTest">진동 테스트</button>
+    </div>
+
+    <div class="card">
+      <b>🔍 정류장 찾기</b>
+      <select id="city"></select>
+      <input id="q" placeholder="정류장 이름 또는 번호">
+      <button id="search">검색</button>
+      <div id="found"></div>
+    </div>
+
+    <div class="card">
+      <b>👨‍👩‍👧 계정 (여러 기기 같은 설정)</b>
+      <div id="acctOut">
+        <input id="email" type="email" placeholder="이메일">
+        <input id="pw" type="password" placeholder="비밀번호 (6자 이상)">
+        <button id="signIn">로그인</button>
+        <button class="g" id="signUp">가입</button>
+      </div>
+      <div id="acctIn" hidden>
+        <div class="sub" id="who"></div>
+        <button id="hearToggle">음성 안내 듣기: 켜짐</button>
+        <button class="g" id="muteToggle">이 기기에서만 듣지 않기: 선택 안 함</button>
+        <button class="g" id="signOut">로그아웃</button>
+      </div>
+      <div class="sub" id="msg"></div>
+    </div>
+
+    <div class="sub" style="text-align:center">
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v1 · 앱 연결: <span id="nat"></span>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+<script>
+(function () {
+var API = "/api", REFRESH_SEC = 30, MAX_WATCH_MIN = 60;
+var NATIVE = typeof window.AndroidBridge !== "undefined";
+
+function $(id) { return document.getElementById(id); }
+function ls(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function toArr(v) { return v == null || v === "" ? [] : (Object.prototype.toString.call(v) === "[object Array]" ? v : [v]); }
+function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function norm(s) { return String(s).replace(/\s+/g, ""); }
+function setMsg(t, err) { var m = $("msg"); m.textContent = t || ""; m.className = "sub" + (err ? " err" : ""); }
+
+/* ---------- 공공데이터 호출 (XMLHttpRequest) ---------- */
+function call(op, params, cb) {
+  var q = "op=" + op + "&t=" + new Date().getTime(), k;
+  for (k in params) if (params.hasOwnProperty(k)) q += "&" + k + "=" + encodeURIComponent(params[k]);
+  var x = new XMLHttpRequest(), done = false;
+  function fin(err, items) { if (done) return; done = true; cb(err, items); }
+  x.open("GET", API + "?" + q, true);
+  x.timeout = 15000;
+  x.onreadystatechange = function () {
+    if (x.readyState !== 4 || x.status === 0) return;
+    var j;
+    try { j = JSON.parse(x.responseText); }
+    catch (e) { return fin(new Error("공공데이터 응답 오류: " + String(x.responseText || x.status).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 100))); }
+    if (!j.response) return fin(new Error(j.error ? "서버 오류: " + j.error : "응답 형식이 올바르지 않습니다."));
+    var h = j.response.header;
+    if (h && h.resultCode !== "00") return fin(new Error(h.resultMsg || "API 오류"));
+    var b = j.response.body;
+    fin(null, toArr(b && b.items && b.items.item));
+  };
+  x.ontimeout = function () { fin(new Error("시간이 오래 걸립니다. 잠시 뒤에 다시 해 주세요.")); };
+  x.onerror = function () { fin(new Error("인터넷 연결을 확인해 주세요.")); };
+  x.send();
+}
+
+/* ---------- 설정(CFG): 기기 저장 또는 계정 ---------- */
+function localCfg() {
+  return { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)),
+    hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)),
+    gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null) };
+}
+var acctOn = ls("acctOn", false), CFG = localCfg();
+if (acctOn) { var cc = ls("acctCfg", null); if (cc) CFG = cc; }
+var fbUser = null, db = null, auth = null, unsub = null, lastSig = "";
+var current = null, timer = null, watchStart = 0;
+
+function listen() { return CFG.hear !== false && !ls("muteHere", false); }
+function stopKey(s) { return s ? String(s.cityCode) + ":" + String(s.nodeid) : ""; }
+function sig() { return JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && stopKey(CFG.stop)]); }
+function favs() { return ls("busFavs", []); }
+function stopOut(s) {
+  return { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
+    nodenm: String(s.nodenm), nodeno: String(s.nodeno == null ? "" : s.nodeno) };
+}
+function saveFavs(f) {
+  lsSet("busFavs", f);
+  if (acctOn) cloudWrite({ favStops: f.map(stopOut) });
+}
+
+function errText(e) {
+  var c = (e && e.code) || "";
+  var map = {
+    "auth/invalid-credential": "이메일 또는 비밀번호가 맞지 않습니다.",
+    "auth/wrong-password": "이메일 또는 비밀번호가 맞지 않습니다.",
+    "auth/user-not-found": "가입되지 않은 이메일입니다. '가입'을 눌러 주세요.",
+    "auth/email-already-in-use": "이미 가입된 이메일입니다. '로그인'을 눌러 주세요.",
+    "auth/weak-password": "비밀번호는 6자 이상이어야 합니다.",
+    "auth/invalid-email": "이메일 형식이 맞지 않습니다.",
+    "auth/network-request-failed": "인터넷 연결을 확인해 주세요.",
+    "auth/operation-not-allowed": "Firebase 콘솔에서 이메일/비밀번호 로그인을 켜야 합니다.",
+    "permission-denied": "권한이 없습니다. (Firestore 규칙 배포가 필요할 수 있습니다)",
+    "failed-precondition": "Firestore 데이터베이스를 먼저 만들어야 합니다."
+  };
+  return map[c] || c || (e && e.message) || "오류가 발생했습니다.";
+}
+
+function cloudWrite(p) {
+  if (!db || !fbUser) return;
+  var d = {}, k;
+  for (k in p) if (p.hasOwnProperty(k)) d[k] = p[k];
+  d.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+  db.collection("accounts").doc(fbUser.uid).set(d, { merge: true }).then(function () { setMsg(""); }, function (e) { setMsg(errText(e), true); });
+}
+
+function saveAlert(p) {
+  var k;
+  for (k in p) if (p.hasOwnProperty(k)) CFG[k] = p[k];
+  if (!acctOn) {
+    var keys = { on: "busAlertOn", buses: "busAlertBuses", min: "busAlertMin", vib: "busAlertVib", rep: "busAlertRep", gap: "busAlertGap", hear: "busAlertHear", stop: "busAlertStop" };
+    for (k in p) if (p.hasOwnProperty(k) && keys[k]) lsSet(keys[k], p[k]);
+  } else {
+    cloudWrite(p);
+    lsSet("acctCfg", CFG);
+  }
+  lastSig = sig();
+  renderAll();
+  syncNative();
+}
+
+function applyRemote(d) {
+  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, hear: d.hear !== false, vib: !!d.vib,
+    rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
+  lsSet("acctCfg", CFG);
+  if (d.scale) setScale(d.scale);
+  if (toArr(d.favStops).length || (d.favStops && d.favStops.length === 0)) lsSet("busFavs", d.favStops);
+  renderAll();
+  var s = sig();
+  if (s === lastSig) return;
+  lastSig = s;
+  if (listen() && CFG.stop && stopKey(current) !== stopKey(CFG.stop)) showStop(CFG.stop);
+  else syncNative();
+}
+
+/* ---------- 안드로이드 앱: 백그라운드 음성 안내 서비스 ---------- */
+function syncNative() {
+  if (!NATIVE) return;
+  try {
+    if (acctOn && !listen()) { AndroidBridge.stopWatch(); return; }
+    var stop = CFG.stop || current;
+    var buses = String(CFG.buses).split(",").map(function (s) { return s.replace(/^\s+|\s+$/g, ""); }).filter(function (s) { return s; }).join(",");
+    if (CFG.on && buses && stop) {
+      if (typeof AndroidBridge.startWatch2 === "function")
+        AndroidBridge.startWatch2(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(CFG.min), !!CFG.vib, Number(CFG.rep) || 1, Number(CFG.gap) || 60);
+      else AndroidBridge.startWatch(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(CFG.min));
+    } else AndroidBridge.stopWatch();
+  } catch (e) {}
+}
+
+/* ---------- 도착정보 ---------- */
+function showStop(stop) {
+  current = stop;
+  watchStart = new Date().getTime();
+  $("stopName").textContent = stop.nodenm;
+  $("arr").innerHTML = '<div class="sub">불러오는 중…</div>';
+  $("upd").textContent = "";
+  clearInterval(timer);
+  syncNative();
+  loadArrivals();
+  timer = setInterval(function () {
+    if (new Date().getTime() - watchStart > MAX_WATCH_MIN * 60000) {
+      clearInterval(timer);
+      $("upd").textContent = "자동 갱신이 멈췄습니다. '새로고침'을 누르면 다시 시작합니다.";
+      return;
+    }
+    loadArrivals();
+  }, REFRESH_SEC * 1000);
+}
+
+function loadArrivals() {
+  if (!current) return;
+  var st = current;
+  call("arrivals", { cityCode: st.cityCode, nodeId: st.nodeid }, function (err, items) {
+    if (st !== current) return;
+    if (err) { $("arr").innerHTML = '<div class="err">' + esc(err.message) + "</div>"; return; }
+    if (!items.length) { $("arr").innerHTML = '<div class="sub">현재 도착 예정 버스가 없습니다.</div>'; }
+    else {
+      items.sort(function (a, b) { return (a.arrtime == null ? 1e9 : a.arrtime) - (b.arrtime == null ? 1e9 : b.arrtime); });
+      var wanted = CFG.on ? String(CFG.buses).split(",").map(norm).filter(function (s) { return s; }) : [];
+      var html = "", i, b, m, w;
+      for (i = 0; i < items.length; i++) {
+        b = items[i];
+        m = Math.floor((b.arrtime || 0) / 60);
+        w = wanted.indexOf(norm(b.routeno)) >= 0;
+        html += '<div class="bus' + (w ? " watch" : "") + '"><div><span class="no">' + esc(b.routeno) + "</span>" + (w ? " 🔔" : "") + "</div>" +
+          '<div class="min">' + (m <= 1 ? "곧 도착" : m + "분") + '<br><span class="sub">' + esc(b.arrprevstationcnt == null ? "-" : b.arrprevstationcnt) + "정류장 전</span></div></div>";
+      }
+      $("arr").innerHTML = html;
+    }
+    $("upd").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
+  });
+}
+
+/* ---------- 화면 그리기 ---------- */
+function setScale(s) {
+  var n = Number(s);
+  document.documentElement.style.fontSize = (16 * n) + "px";
+  lsSet("busScale", n);
+  var b = document.querySelectorAll("#fontBtns button"), i;
+  for (i = 0; i < b.length; i++) b[i].className = Number(b[i].getAttribute("data-scale")) === n ? "g sel" : "g";
+}
+
+function renderFavs() {
+  var f = favs(), html = "", i;
+  $("favBox").hidden = !f.length;
+  for (i = 0; i < f.length; i++) {
+    html += '<div class="fav"><div><b>' + esc(f[i].nodenm) + '</b><br><span class="sub">' + esc(f[i].cityName) + " · " + esc(f[i].nodeno) +
+      '</span></div><div><button data-fav="' + i + '">보기</button></div></div>';
+  }
+  $("favs").innerHTML = html;
+}
+
+function renderStopSel() {
+  var f = favs().map(stopOut), cur = CFG.stop, list = f, i, found = false;
+  if (cur) { for (i = 0; i < f.length; i++) if (stopKey(f[i]) === stopKey(cur)) found = true; if (!found) list = [cur].concat(f); }
+  var html = '<option value="">' + (list.length ? "(고르세요)" : "(즐겨찾기가 없습니다 · 아래에서 찾으세요)") + "</option>";
+  for (i = 0; i < list.length; i++) html += '<option value="' + esc(stopKey(list[i])) + '">' + esc(list[i].nodenm) + " (" + esc(list[i].cityName) + ")</option>";
+  $("alertStop").innerHTML = html;
+  $("alertStop").value = cur ? stopKey(cur) : "";
+  renderStopSel.list = list;
+}
+
+function renderAll() {
+  $("alertToggle").textContent = CFG.on ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
+  $("alertToggle").className = CFG.on ? "on" : "";
+  $("alertBus").value = CFG.buses || "";
+  $("alertMin").value = String(CFG.min);
+  $("vibToggle").textContent = CFG.vib ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
+  $("vibToggle").className = CFG.vib ? "on" : "";
+  $("acctOut").hidden = acctOn;
+  $("acctIn").hidden = !acctOn;
+  if (acctOn) {
+    $("who").textContent = "로그인: " + ((fbUser && fbUser.email) || ls("acctEmail", ""));
+    $("hearToggle").textContent = "음성 안내 듣기(모든 기기): " + (CFG.hear !== false ? "켜짐" : "꺼짐");
+    $("hearToggle").className = CFG.hear !== false ? "on" : "";
+    var mute = !!ls("muteHere", false);
+    $("muteToggle").textContent = "이 기기에서만 듣지 않기: " + (mute ? "선택함" : "선택 안 함");
+    $("muteToggle").className = mute ? "g sel" : "g";
+  }
+  renderFavs();
+  renderStopSel();
+}
+
+/* ---------- 정류장 찾기 ---------- */
+var cities = [];
+function loadCities() {
+  call("cities", {}, function (err, items) {
+    if (err) return;
+    cities = items;
+    var saved = String(ls("busCity", "")), html = "", i, def = "";
+    items.sort(function (a, b) { return a.cityname < b.cityname ? -1 : 1; });
+    for (i = 0; i < items.length; i++) {
+      html += '<option value="' + esc(items[i].citycode) + '">' + esc(items[i].cityname) + "</option>";
+      if (String(items[i].cityname).indexOf("부여") >= 0) def = String(items[i].citycode);
+    }
+    $("city").innerHTML = html;
+    $("city").value = saved || def || String(items[0].citycode);
+  });
+}
+
+function searchStops() {
+  var q = $("q").value.replace(/^\s+|\s+$/g, "");
+  if (!q) return;
+  lsSet("busCity", $("city").value);
+  $("found").innerHTML = '<div class="sub">검색 중…</div>';
+  var p = { cityCode: $("city").value };
+  if (/^\d+$/.test(q)) p.nodeNo = q; else p.nodeNm = q;
+  var cname = $("city").options.length ? $("city").options[$("city").selectedIndex].text : "";
+  call("stops", p, function (err, items) {
+    if (err) { $("found").innerHTML = '<div class="err">' + esc(err.message) + "</div>"; return; }
+    if (!items.length) { $("found").innerHTML = '<div class="sub">검색 결과가 없습니다.</div>'; return; }
+    var html = "", i;
+    searchStops.list = [];
+    for (i = 0; i < items.length; i++) {
+      searchStops.list.push(stopOut({ cityCode: p.cityCode, cityName: cname, nodeid: items[i].nodeid, nodenm: items[i].nodenm, nodeno: items[i].nodeno }));
+      html += '<div class="fav"><div><b>' + esc(items[i].nodenm) + '</b><br><span class="sub">' + esc(items[i].nodeno == null ? "" : items[i].nodeno) +
+        '</span></div><div><button data-pick="' + i + '">이 정류장으로</button></div></div>';
+    }
+    $("found").innerHTML = html;
+  });
+}
+
+/* ---------- 로그인 ---------- */
+function doAuth(kind) {
+  var email = $("email").value.replace(/^\s+|\s+$/g, ""), pw = $("pw").value;
+  if (!auth) { setMsg("로그인 기능을 준비하는 중입니다. 잠시 뒤에 다시 해 주세요.", true); return; }
+  if (!email || pw.length < 6) { setMsg("이메일과 6자 이상 비밀번호를 입력하세요.", true); return; }
+  setMsg("처리 중…");
+  var pr = kind === "up" ? auth.createUserWithEmailAndPassword(email, pw) : auth.signInWithEmailAndPassword(email, pw);
+  pr.then(function () { setMsg(""); $("pw").value = ""; }, function (e) { setMsg(errText(e), true); });
+}
+
+function startAcct(user) {
+  if (unsub) { unsub(); unsub = null; }
+  lastSig = "";
+  var ref = db.collection("accounts").doc(user.uid);
+  ref.get().then(function (snap) {
+    var favOut = favs().map(stopOut);
+    if (!snap.exists) {
+      var first = { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on, hear: CFG.hear !== false, scale: Number(ls("busScale", 1.5)),
+        vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, favStops: favOut, favCities: ls("busFavCities", []), updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+      if (CFG.stop) first.stop = stopOut(CFG.stop);
+      return ref.set(first);
+    }
+    var d = snap.data(), add = {}, has = false;
+    if (!d.scale) { add.scale = Number(ls("busScale", 1.5)); has = true; }
+    if (!d.favStops && favOut.length) { add.favStops = favOut; has = true; }
+    if (has) { add.updatedAt = firebase.firestore.FieldValue.serverTimestamp(); return ref.set(add, { merge: true }); }
+  }).then(function () {
+    unsub = ref.onSnapshot(function (s) { if (s.exists) applyRemote(s.data()); }, function (e) { setMsg("설정을 불러올 수 없습니다. " + errText(e), true); });
+  }, function (e) { setMsg(errText(e), true); });
+}
+
+function onAuth(user) {
+  fbUser = user && !user.isAnonymous ? user : null;
+  if (fbUser) {
+    if (!acctOn) { acctOn = true; lsSet("acctOn", true); }
+    lsSet("acctEmail", fbUser.email || "");
+    startAcct(fbUser);
+  } else if (acctOn) {
+    if (unsub) { unsub(); unsub = null; }
+    acctOn = false; lsSet("acctOn", false);
+    CFG = localCfg();
+    syncNative();
+  }
+  renderAll();
+}
+
+function initFirebase() {
+  if (typeof firebase === "undefined") { if (acctOn) setMsg("로그인 기능을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.", true); return; }
+  try {
+    firebase.initializeApp({ apiKey: "AIzaSyC8UZsQaZVtml-K3J8WyDuL4mjgnYAsQTo", authDomain: "bustime-c4cfd.firebaseapp.com", projectId: "bustime-c4cfd", appId: "1:179320810477:web:ad4b1241a9ab2a1ec055e4" });
+    auth = firebase.auth();
+    db = firebase.firestore();
+    try { db.settings({ experimentalForceLongPolling: true, merge: true }); } catch (e) {}
+    auth.onAuthStateChanged(onAuth);
+  } catch (e) { setMsg("로그인 기능을 시작하지 못했습니다: " + (e.message || e), true); }
+}
+
+/* ---------- 이벤트 ---------- */
+document.addEventListener("click", function (e) {
+  var b = e.target;
+  while (b && b.tagName !== "BUTTON") b = b.parentNode;
+  if (!b || b === document) return;
+  var sc = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");
+  if (sc) { setScale(sc); if (acctOn) cloudWrite({ scale: Number(sc) }); }
+  if (fv != null) { showStop(favs()[fv]); }
+  if (pk != null) {
+    var x = searchStops.list[pk], f = favs(), i, has = false;
+    for (i = 0; i < f.length; i++) if (stopKey(f[i]) === stopKey(x)) has = true;
+    if (!has) { f.push(x); saveFavs(f); }
+    saveAlert({ stop: x });
+    showStop(x);
+    $("found").innerHTML = ""; $("q").value = "";
+    setMsg("'" + x.nodenm + "'을(를) 안내 정류장으로 정했습니다.");
+  }
+});
+$("gear").onclick = function () { $("main").hidden = true; $("set").hidden = false; window.scrollTo(0, 0); };
+$("back").onclick = function () { $("set").hidden = true; $("main").hidden = false; window.scrollTo(0, 0); };
+$("refresh").onclick = function () { if (current) showStop(current); };
+$("alertToggle").onclick = function () {
+  var on = !CFG.on;
+  saveAlert({ on: on, buses: $("alertBus").value });
+  if (on && NATIVE && listen()) { try { AndroidBridge.speakTest(); } catch (e) {} }
+};
+$("alertBus").onchange = function () { saveAlert({ buses: this.value }); };
+$("alertMin").onchange = function () { saveAlert({ min: Number(this.value) }); };
+$("alertStop").onchange = function () {
+  var l = renderStopSel.list || [], i, x = null;
+  for (i = 0; i < l.length; i++) if (stopKey(l[i]) === this.value) x = l[i];
+  saveAlert({ stop: x });
+  if (x) showStop(x);
+};
+$("voiceTest").onclick = function () {
+  if (NATIVE) { try { AndroidBridge.speakTest(); } catch (e) {} }
+  else alert("음성 안내는 설치한 앱에서만 사용할 수 있습니다.");
+};
+function vibTest() {
+  if (NATIVE && typeof AndroidBridge.vibrateTest === "function") AndroidBridge.vibrateTest();
+  else if (navigator.vibrate) navigator.vibrate([500, 200, 500]);
+  else alert("이 기기에서는 진동을 지원하지 않습니다.");
+}
+$("vibToggle").onclick = function () { var v = !CFG.vib; saveAlert({ vib: v }); if (v) vibTest(); };
+$("vibTest").onclick = vibTest;
+$("search").onclick = searchStops;
+$("signIn").onclick = function () { doAuth("in"); };
+$("signUp").onclick = function () { doAuth("up"); };
+$("signOut").onclick = function () { if (auth) auth.signOut(); };
+$("hearToggle").onclick = function () { saveAlert({ hear: CFG.hear === false }); };
+$("muteToggle").onclick = function () { lsSet("muteHere", !ls("muteHere", false)); renderAll(); syncNative(); };
+
+/* ---------- 시작 ---------- */
+$("nat").textContent = NATIVE ? "예" : "아니오";
+setScale(ls("busScale", 1.5));
+renderAll();
+loadCities();
+initFirebase();
+var first = CFG.stop || (favs()[0] || null);
+if (first) showStop(first);
+})();
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -28,6 +29,8 @@ class MainActivity : AppCompatActivity() {
     private var pendingGeo: Pair<String, GeolocationPermissions.Callback>? = null
 
     private val siteUrl = "https://bustime-c4cfd.web.app"
+    // 안드로이드 7.0 미만(구형 폴더폰 등)은 가벼운 간단 화면을 먼저 보여 줌
+    private val startUrl get() = if (Build.VERSION.SDK_INT < 24) "$siteUrl/lite.html" else siteUrl
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,25 +61,26 @@ class MainActivity : AppCompatActivity() {
             override fun onGeolocationPermissionsShowPrompt(
                 origin: String, callback: GeolocationPermissions.Callback
             ) {
-                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                    checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
                 ) {
                     callback.invoke(origin, true, false)
                 } else {
                     pendingGeo = Pair(origin, callback)
-                    requestPermissions(
+                    ActivityCompat.requestPermissions(
+                        this@MainActivity,
                         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2
                     )
                 }
             }
         }
         web.addJavascriptInterface(Bridge(), "AndroidBridge")
-        web.loadUrl(siteUrl)
+        web.loadUrl(startUrl)
 
         if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {

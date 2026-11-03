@@ -165,6 +165,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       <div class="sub" id="famMsg" style="margin-top:.4rem"></div>
     </details>
 
+    <div class="sub" style="margin-top:.6rem"><a href="/lite.html">간단 화면(지도 없음, 가벼운 버전)으로 보기</a></div>
     <div class="sub" id="alertNote" style="margin-top:.6rem">
       ※ 음성 안내를 받으려면 해당 정류장의 도착정보 화면을 켜 두어야 합니다.
       화면이 꺼지거나 다른 앱으로 넘어가면 안내가 나오지 않을 수 있습니다.
@@ -993,7 +994,7 @@ async function startAcct(user) {
   const localFavStops = ls("busFavs", []).map(stopOut);
   const localFavCities = ls("busFavCities", []).map(c => ({ code: String(c.code), name: String(c.name), prov: String(c.prov) }));
   if (!snap.exists()) {           // 처음 로그인: 이 기기의 현재 설정을 계정에 올림
-    await FB.setDoc(ref, { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
+    await FB.setDoc(ref, { ...(CFG.stop ? { stop: stopOut(CFG.stop) } : {}), buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
       hear: CFG.hear !== false, scale: Number(ls("busScale", 1.5)),
       vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60,
       favStops: localFavStops, favCities: localFavCities, updatedAt: FB.serverTimestamp() });
@@ -1121,7 +1122,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v23 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v24 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
