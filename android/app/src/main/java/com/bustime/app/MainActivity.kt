@@ -186,7 +186,32 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun stopWatch() {
+            if (WatchService.runningSchedule != null) return      // 예약 안내가 도는 중이면 화면 동기화로 끄지 않음
             stopService(Intent(this@MainActivity, WatchService::class.java))
+        }
+
+        /** 계정의 예약 안내 목록(JSON)을 이 기기에 저장하고 알람을 다시 건다 */
+        @JavascriptInterface
+        fun setSchedules(json: String) {
+            Schedules.save(this@MainActivity, json)
+            Schedules.arm(this@MainActivity, true)
+        }
+
+        /** 정확한 시각에 알람을 울릴 수 있는 권한이 있는지 */
+        @JavascriptInterface
+        fun exactOk(): Boolean = Schedules.exactOk(this@MainActivity)
+
+        @JavascriptInterface
+        fun requestExact() {
+            if (Build.VERSION.SDK_INT < 31) return
+            runOnUiThread {
+                try {
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                            .setData(Uri.parse("package:$packageName"))
+                    )
+                } catch (e: Exception) { }
+            }
         }
 
         @JavascriptInterface

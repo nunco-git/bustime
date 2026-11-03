@@ -39,7 +39,12 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
         private const val NOTI_ID = 1
         private const val BASE = "https://bustime-c4cfd.web.app/api"
         private const val POLL_MS = 30_000L            // 30초마다 확인
-        private const val MAX_MS = 60L * 60L * 1000L   // 호출 횟수 절약: 60분 후 자동 종료
+        private const val MAX_MS = 60L * 60L * 1000L   // 호출 횟수 절약: 60분 후 자동 종료 (예약 안내는 끝나는 시각까지)
+
+        /** 지금 도는 서비스가 예약 안내이면 그 예약 id (수동 안내이면 null) */
+        @Volatile var runningSchedule: String? = null
+        @Volatile var runningSig: Int = 0
+        @Volatile var running: Boolean = false       // 서비스가 도는 중인지(수동·예약 모두)
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -59,10 +64,13 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
     private val counts = mutableMapOf<String, Int>()
     private val lastAt = mutableMapOf<String, Long>()
     private var startedAt = 0L
+    private var endAtWall = 0L                      // 예약 안내가 끝나는 시각(없으면 0)
 
     private val pollRunnable = object : Runnable {
         override fun run() {
-            if (SystemClock.elapsedRealtime() - startedAt > MAX_MS) {
+            if (endAtWall > 0) {
+                if (System.currentTimeMillis() >= endAtWall) { stopSelf(); return }    // 예약 시간이 끝남
+            } else if (SystemClock.elapsedRealtime() - startedAt > MAX_MS) {
                 speak("안내 시간이 지나 음성 안내를 종료합니다.")
                 handler.postDelayed({ stopSelf() }, 6000)
                 return
@@ -76,6 +84,7 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent == null || intent.action == ACTION_STOP) {
+            runningSchedule?.let { Schedules.skipToday(this, it) }    // 사용자가 직접 끈 예약은 오늘은 다시 켜지 않음
             stopSelf()
             return START_NOT_STICKY
         }
@@ -115,6 +124,10 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
                 .forEach { map[it] = c }
         }
         cfgs = map
+        running = true
+        runningSchedule = intent.getStringExtra("schedId")
+        runningSig = intent.getIntExtra("sig", 0)
+        endAtWall = intent.getLongExtra("endAt", 0L)
         counts.clear()
         lastAt.clear()
         startedAt = SystemClock.elapsedRealtime()
@@ -131,11 +144,11 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
 
         if (tts == null) tts = TextToSpeech(this, this)
 
-        if (wakeLock == null) {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        run {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bustime:watch").apply {
-                acquire(MAX_MS + 60_000L)
-            }
+            val dur = if (endAtWall > 0) maxOf(endAtWall - System.currentTimeMillis(), 0L) + 60_000L else MAX_MS + 60_000L
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bustime:watch").apply { acquire(dur) }
         }
 
         // 화면이 꺼져도 와이파이가 잠들지 않게 함 (꺼지면 도착정보 조회가 막힘)
@@ -284,6 +297,8 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+        runningSchedule = null
+        running = false
         handler.removeCallbacksAndMessages(null)
         tts?.shutdown()
         executor.shutdownNow()

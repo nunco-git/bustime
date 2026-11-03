@@ -125,6 +125,17 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
     </details>
 
     <details class="grp">
+      <summary>⏰ 예약 안내 (정한 시간에 자동으로)</summary>
+      <div class="sub">정한 요일·시간에 앱이 알아서 안내를 켜고 끕니다. 설치한 앱에서 동작하며, 자녀 폰에서 만들어도 같은 계정이면 부모님 폰에 그대로 적용됩니다.</div>
+      <div id="schedList"></div>
+      <button id="schedAdd" style="margin-top:8px">＋ 예약 추가</button>
+      <div id="exactBox" hidden style="margin-top:8px">
+        <div class="sub err">⚠ 정한 시각에 정확히 켜지려면 '알람 및 리마인더' 허용이 필요합니다.</div>
+        <button class="ghost" id="exactBtn" style="margin-top:4px">⏰ 정확한 시각 알람 허용</button>
+      </div>
+    </details>
+
+    <details class="grp">
       <summary>📳 진동 · 🔁 반복 (새 알람 기본값)</summary>
       <label>진동</label>
       <div class="row">
@@ -246,6 +257,36 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
   </div>
 </div>
 
+<div class="modal" id="scModal" hidden>
+  <div class="box">
+    <b style="font-size:1.2rem" id="scTitle">⏰ 예약 안내</b>
+    <label>요일 (눌러서 선택)</label>
+    <div class="row" id="scDays"></div>
+    <div class="row" style="margin-top:6px">
+      <button class="ghost" data-scpre="wk">평일</button><button class="ghost" data-scpre="we">주말</button><button class="ghost" data-scpre="all">매일</button>
+    </div>
+    <label>시작 ~ 끝 시각</label>
+    <div class="row"><select id="scFH"></select><select id="scFM"></select><span style="align-self:center">~</span><select id="scTH"></select><select id="scTM"></select></div>
+    <label for="scStop">안내받을 정류장 (즐겨찾기에서)</label>
+    <select id="scStop"></select>
+    <label>안내받을 버스 (눌러서 선택)</label>
+    <div id="scChips"></div>
+    <input id="scBuses" placeholder="목록에 없으면 직접 입력 (예: 150, 207)" style="margin-top:6px">
+    <label for="scMin">도착 몇 분 전에 안내할까요?</label>
+    <select id="scMin"></select>
+    <label>안내 방법 (눌러서 켜고 끄기)</label>
+    <div class="row"><button id="scVoice">🔊 음성: 켜짐</button><button id="scVib">📳 진동: 켜짐</button></div>
+    <label>반복 안내</label>
+    <div class="row"><select id="scRep"></select><select id="scGap"></select></div>
+    <div class="sub err" id="scErr" style="margin-top:6px"></div>
+    <div class="row" style="margin-top:12px">
+      <button id="scOk">저장</button>
+      <button class="ghost" id="scDel" hidden>삭제</button>
+      <button class="ghost" id="scCancel">취소</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="amModal" hidden>
   <div class="box">
     <b style="font-size:1.2rem">🔔 알람 설정</b>
@@ -327,7 +368,7 @@ const announced = {};          // 버스별 안내 기록 {횟수, 마지막 시
 let acctOn = ls("acctOn", false);          // 이메일 계정으로 로그인해 설정을 클라우드와 동기화 중인지
 const clampMin = n => Math.min(20, Math.max(5, Number(n) || 5));   // 안내 시간은 5~20분 전
 const localCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: clampMin(ls("busAlertMin", 5)),
-  hear: ls("busAlertHear", true), vib: ls("busAlertVib", true), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null), bset: ls("busAlertBset", {}) });
+  hear: ls("busAlertHear", true), vib: ls("busAlertVib", true), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null), bset: ls("busAlertBset", {}), sched: ls("busAlertSched", []) });
 let CFG = localCfg();
 if (acctOn) { const c = ls("acctCfg", null); if (c) CFG = c; }   // 인터넷이 없어도 마지막 설정 사용
 let FB = null, authUser = null, unsubA = null, lastSig = "";
@@ -335,7 +376,7 @@ let FB = null, authUser = null, unsubA = null, lastSig = "";
 // 이 기기에서 음성 안내를 낼지: 계정 전체 설정(hear)이 켜져 있고, 이 기기에서 '듣지 않기'를 고르지 않았을 때
 const listen = () => CFG.hear !== false && !ls("muteHere", false);
 const alertCfg = () => CFG;
-const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid, CFG.bset]);
+const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid, CFG.bset, CFG.sched]);
 const sameStop = (a, b) => a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode);
 const activeStop = () => CFG.stop || current;
 
@@ -347,6 +388,7 @@ function saveAlert(p, extra) {      // extra: 같은 쓰기에 함께 보낼 계
     if ("min" in p) lsSet("busAlertMin", p.min);
     if ("vib" in p) lsSet("busAlertVib", p.vib);
     if ("bset" in p) lsSet("busAlertBset", p.bset);
+    if ("sched" in p) lsSet("busAlertSched", p.sched);
     if ("hear" in p) lsSet("busAlertHear", p.hear);
     if ("stop" in p) lsSet("busAlertStop", p.stop);
     if ("rep" in p) lsSet("busAlertRep", p.rep);
@@ -371,7 +413,7 @@ async function cloudWrite(p) {
 }
 
 function applyRemote(d) {
-  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: d.vib !== false, bset: (d.bset && typeof d.bset === "object") ? d.bset : {},
+  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: d.vib !== false, bset: (d.bset && typeof d.bset === "object") ? d.bset : {}, sched: Array.isArray(d.sched) ? d.sched : [],
           rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
   if (d.scale) setScale(d.scale, true);
@@ -698,6 +740,7 @@ async function keepAwake() {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") return;
   renderBatt();
+  if (typeof renderSched === "function") renderSched();
   if (current) { keepAwake(); loadArrivals(); }      // 화면을 다시 켜면 바로 최신 도착정보로 갱신
 });
 
@@ -718,8 +761,16 @@ function askBattery() {          // 안내를 처음 켤 때 한 번만 자동�
 $("battBtn").onclick = () => { try { AndroidBridge.requestBattery(); } catch (e) {} };
 
 // 안드로이드 앱: 안내할 정류장 + 설정을 백그라운드 서비스에 전달 (이 기기 음성 안내를 끄면 하지 않음)
+// 예약 안내 목록을 앱(안드로이드)에 넘겨 폰 안에서 시간이 되면 자동으로 실행되게 함
+function pushSched() {
+  if (!NATIVE || typeof AndroidBridge.setSchedules !== "function") return;
+  const list = listen() ? schedList().filter(x => x.on) : [];
+  try { AndroidBridge.setSchedules(JSON.stringify(list)); } catch (e) {}
+}
+
 function syncNative() {
   if (!NATIVE) return;
+  pushSched();
   if (acctOn && !listen()) { try { AndroidBridge.stopWatch(); } catch (e) {} return; }
   const c = alertCfg();
   const stop = activeStop();
@@ -741,6 +792,7 @@ function syncNative() {
 
 function renderAlertUi() {
   if (typeof renderBatt === "function") renderBatt();
+  if (typeof renderSched === "function") renderSched();
   $("alertToggle").textContent = CFG.on ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
   $("alertToggle").classList.toggle("on", !!CFG.on);
   $("alertBus").value = CFG.buses || "";
@@ -938,6 +990,7 @@ async function fetchRoutes(stop) {
     routeCache[k] = list;
   } catch (e) { routeCache[k] = "error:" + e.message; }
   renderBusChips();
+  if (typeof renderScChips === "function") renderScChips();
 }
 
 function renderBusChips() {
@@ -1065,6 +1118,14 @@ function openAlarmModal(no) {
   amPaint();
   $("amModal").hidden = false;
 }
+$("schedAdd").onclick = () => openSched(null);
+$("scStop").onchange = () => { if (sc) { sc.buses = []; scPaint(); renderScChips(); } };
+$("scBuses").addEventListener("change", e => { if (sc) { sc.buses = e.target.value.split(",").map(x => x.trim()).filter(Boolean); renderScChips(); } });
+$("scVoice").onclick = () => { sc.voice = !sc.voice; scPaint(); };
+$("scVib").onclick = () => { sc.vib = !sc.vib; scPaint(); };
+$("scOk").onclick = saveSched;
+$("scDel").onclick = () => { if (!sc || sc.idx == null) return; const l = schedList().filter((_, i) => i !== sc.idx); $("scModal").hidden = true; sc = null; saveAlert({ sched: l }); };
+$("scCancel").onclick = () => { $("scModal").hidden = true; sc = null; };
 $("amVoice").onclick = () => { am.voice = !am.voice; amPaint(); };
 $("amVib").onclick = () => { am.vib = !am.vib; amPaint(); };
 $("amOk").onclick = () => {
@@ -1231,7 +1292,7 @@ async function startAcct(user) {
   if (!snap.exists()) {           // 처음 로그인: 이 기기의 현재 설정을 계정에 올림
     await FB.setDoc(ref, { ...(CFG.stop ? { stop: stopOut(CFG.stop) } : {}), buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
       hear: CFG.hear !== false, scale: Number(ls("busScale", 1.5)),
-      vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, bset: CFG.bset || {},
+      vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, bset: CFG.bset || {}, sched: CFG.sched || [],
       favStops: localFavStops, favCities: localFavCities, updatedAt: FB.serverTimestamp() });
   } else {                        // 계정에 아직 없는 항목만 이 기기 것으로 채움
     const d = snap.data(), add = {};
@@ -1260,6 +1321,109 @@ async function logout() {
   try { if (FB) await FB.signOut(FB.auth); } catch {}
 }
 
+/* ================= 예약 안내 ================= */
+const DAYN = ["", "월", "화", "수", "목", "금", "토", "일"];
+const schedList = () => Array.isArray(CFG.sched) ? CFG.sched : [];
+function dayText(d) {
+  const x = [...d].sort((a, b) => a - b).join();
+  if (x === "1,2,3,4,5") return "평일";
+  if (x === "6,7") return "주말";
+  if (x === "1,2,3,4,5,6,7") return "매일";
+  return [...d].sort((a, b) => a - b).map(n => DAYN[n]).join("·");
+}
+function renderSched() {
+  const l = schedList();
+  $("schedList").innerHTML = l.length ? l.map((s, i) =>
+    `<div class="stop"><div><b>${dayText(s.d)} ${escH(s.a)}~${escH(s.b)}</b><br><small>${escH(s.stop && s.stop.nodenm)} · ${escH(s.buses)} · ${s.m}분 전${s.v ? " 🔊" : ""}${s.z ? " 📳" : ""}${s.r > 1 ? " · " + s.r + "번 반복" : ""}</small></div>
+      <div class="btns"><button class="${s.on ? "" : "ghost"}" data-scon="${i}">${s.on ? "켜짐" : "꺼짐"}</button> <button class="ghost" data-scedit="${i}">수정</button></div></div>`).join("")
+    : `<div class="sub" style="margin-top:6px">예약이 없습니다.</div>`;
+  $("schedAdd").hidden = l.length >= 10;
+  let ex = true; try { ex = !(NATIVE && typeof AndroidBridge.exactOk === "function") || AndroidBridge.exactOk(); } catch (e) {}
+  $("exactBox").hidden = ex;
+}
+$("exactBtn").onclick = () => { try { AndroidBridge.requestExact(); } catch (e) {} };
+
+let sc = null;     // 편집 중인 예약 { id, days:Set, voice, vib, buses:[] }
+function scFill(id, vals, fmt) {
+  const el = $(id);
+  if (!el.options.length) vals.forEach(v => el.add(new Option(fmt(v), String(v))));
+}
+function scPaint() {
+  $("scDays").innerHTML = [1, 2, 3, 4, 5, 6, 7].map(n => `<button class="${sc.days.has(n) ? "" : "ghost"}" data-scday="${n}" style="min-width:2.6rem">${DAYN[n]}</button>`).join("");
+  $("scVoice").textContent = sc.voice ? "🔊 음성: 켜짐" : "🔊 음성: 꺼짐";
+  $("scVoice").className = sc.voice ? "" : "ghost";
+  $("scVib").textContent = sc.vib ? "📳 진동: 켜짐" : "📳 진동: 꺼짐";
+  $("scVib").className = sc.vib ? "" : "ghost";
+  $("scBuses").value = sc.buses.join(", ");
+}
+function scStopObj() {
+  const v = $("scStop").value;
+  return favs().map(stopOut).find(x => stopKey(x) === v) || null;
+}
+function renderScChips() {
+  const box = $("scChips");
+  if (!box || !sc || $("scModal").hidden) return;
+  const stop = scStopObj();
+  if (!stop) { box.innerHTML = `<div class="sub">먼저 정류장을 고르세요.</div>`; return; }
+  const k = stopKey(stop), r = routeCache[k];
+  if (r === undefined) { fetchRoutes(stop); box.innerHTML = `<div class="sub">버스 목록을 불러오는 중…</div>`; return; }
+  const selN = sc.buses.map(norm), list = Array.isArray(r) ? r.slice() : [];
+  sc.buses.forEach(b => { if (!list.some(x => norm(x.no) === norm(b))) list.push({ no: b }); });
+  let html = list.map(x => `<button class="ghost${selN.includes(norm(x.no)) ? " on" : ""}" data-scbus="${escH(x.no)}" style="margin:3px 6px 3px 0;border-radius:999px;font-weight:800">${escH(x.no)}${x.dir ? `<small style="display:block;font-weight:600">→ ${escH(x.dir)}</small>` : ""}</button>`).join("");
+  if (r === "loading") html += `<div class="sub">버스 목록을 불러오는 중…</div>`;
+  else if (typeof r === "string") html += `<div class="sub err">버스 목록을 가져오지 못했습니다. 아래에 직접 입력하세요.</div>`;
+  box.innerHTML = html;
+}
+function openSched(i) {
+  const old = i != null ? schedList()[i] : null;
+  scFill("scFH", Array.from({ length: 24 }, (_, n) => n), v => String(v).padStart(2, "0") + "시");
+  scFill("scTH", Array.from({ length: 24 }, (_, n) => n), v => String(v).padStart(2, "0") + "시");
+  scFill("scFM", [0, 10, 20, 30, 40, 50], v => String(v).padStart(2, "0") + "분");
+  scFill("scTM", [0, 10, 20, 30, 40, 50], v => String(v).padStart(2, "0") + "분");
+  scFill("scMin", Array.from({ length: 16 }, (_, n) => n + 5), v => v + "분 전");
+  scFill("scRep", [1, 2, 3, 5, 10], v => v === 1 ? "한 번만" : v + "번 반복");
+  scFill("scGap", [30, 60, 120], v => v === 30 ? "30초마다" : v / 60 + "분마다");
+  const favL = favs().map(stopOut);
+  $("scStop").innerHTML = `<option value="">${favL.length ? "(고르세요)" : "(즐겨찾기가 없습니다)"}</option>` + favL.map(x => `<option value="${escH(stopKey(x))}">${escH(x.nodenm)} (${escH(x.cityName)})</option>`).join("");
+  const set = (id, v) => { $(id).value = String(v); };
+  if (old) {
+    sc = { id: old.id, idx: i, on: old.on !== false, days: new Set(old.d), voice: old.v !== false, vib: old.z !== false, buses: String(old.buses || "").split(",").map(x => x.trim()).filter(Boolean) };
+    const [fh, fm] = old.a.split(":").map(Number), [th, tm] = old.b.split(":").map(Number);
+    set("scFH", fh); set("scFM", fm); set("scTH", th); set("scTM", tm);
+    set("scMin", clampMin(old.m)); set("scRep", [1, 2, 3, 5, 10].includes(old.r) ? old.r : 1); set("scGap", [30, 60, 120].includes(old.g) ? old.g : 60);
+    $("scStop").value = old.stop ? stopKey(old.stop) : "";
+    $("scTitle").textContent = "⏰ 예약 수정";
+  } else {
+    sc = { id: "s" + Date.now().toString(36), idx: null, on: true, days: new Set([1, 2, 3, 4, 5]), voice: true, vib: true, buses: [] };
+    set("scFH", 7); set("scFM", 0); set("scTH", 9); set("scTM", 0);
+    set("scMin", clampMin(CFG.min)); set("scRep", 1); set("scGap", 60);
+    $("scStop").value = CFG.stop && favL.some(x => stopKey(x) === stopKey(CFG.stop)) ? stopKey(CFG.stop) : "";
+    $("scTitle").textContent = "⏰ 예약 추가";
+  }
+  $("scErr").textContent = "";
+  $("scDel").hidden = !old;
+  scPaint();
+  $("scModal").hidden = false;
+  renderScChips();
+}
+function saveSched() {
+  const pad = n => String(n).padStart(2, "0");
+  const a = pad($("scFH").value) + ":" + pad($("scFM").value), b = pad($("scTH").value) + ":" + pad($("scTM").value);
+  const stop = scStopObj();
+  const buses = sc.buses.join(", ");
+  const err = !sc.days.size ? "요일을 하나 이상 고르세요."
+    : a >= b ? "끝나는 시각이 시작보다 늦어야 합니다."
+    : !stop ? "안내받을 정류장을 고르세요."
+    : !sc.buses.length ? "안내받을 버스를 하나 이상 고르세요."
+    : (!sc.voice && !sc.vib) ? "음성이나 진동 중 하나는 켜 주세요." : "";
+  if (err) { $("scErr").textContent = err; return; }
+  const item = { id: sc.id, on: sc.on, d: [...sc.days].sort((x, y) => x - y), a, b, stop, buses, m: Number($("scMin").value), v: sc.voice, z: sc.vib, r: Number($("scRep").value), g: Number($("scGap").value) };
+  const l = schedList().slice();
+  if (sc.idx != null) l[sc.idx] = item; else l.push(item);
+  $("scModal").hidden = true; sc = null;
+  saveAlert({ sched: l });
+}
+
 /* ================= 이벤트 ================= */
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
@@ -1268,6 +1432,11 @@ document.addEventListener("click", e => {
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
   if (d.bus != null) toggleBus(d.bus);
+  if (d.scon != null) { const l = schedList().map(x => ({ ...x })); l[d.scon].on = !l[d.scon].on; saveAlert({ sched: l }); }
+  if (d.scedit != null) openSched(Number(d.scedit));
+  if (d.scday != null && sc) { const n = Number(d.scday); sc.days.has(n) ? sc.days.delete(n) : sc.days.add(n); scPaint(); }
+  if (d.scpre != null && sc) { sc.days = new Set(d.scpre === "wk" ? [1, 2, 3, 4, 5] : d.scpre === "we" ? [6, 7] : [1, 2, 3, 4, 5, 6, 7]); scPaint(); }
+  if (d.scbus != null && sc) { const i = sc.buses.findIndex(x => norm(x) === norm(d.scbus)); if (i >= 0) sc.buses.splice(i, 1); else sc.buses.push(d.scbus); scPaint(); renderScChips(); }
   if (d.alarm != null) openAlarmModal(d.alarm);         // 버스마다 안내 시간·방법·반복을 고르는 창
   if (d.asset != null) {      // 설정창 검색 결과에서 지정
     const x = window._asStops[d.asset];
@@ -1353,6 +1522,7 @@ $("refresh").onclick = () => { if (current) showArrivals(current); };
 if ("speechSynthesis" in window) speechSynthesis.getVoices();
 setScale(ls("busScale", 1.5));
 renderAlertUi();
+pushSched();        // 앱을 열 때 저장된 예약을 폰에 다시 걸어 둠
 if (NATIVE) $("alertNote").textContent =
   "※ 안내는 지금 보고 있는(또는 지정된) 정류장 기준입니다. 정류장의 도착정보를 먼저 열고 음성 안내를 켜세요. " +
   "그 뒤에는 화면을 끄거나 다른 앱을 써도 안내가 나옵니다. (최대 60분, 상단 알림의 '안내 종료'로 끌 수 있습니다)";
@@ -1360,7 +1530,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v40 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v41 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

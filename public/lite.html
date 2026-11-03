@@ -33,7 +33,9 @@
   a { color: #1d4ed8; }
   .bus button { width: 100%; margin-top: 4px; padding: .4rem; }
   #busChips button { margin: 3px 6px 3px 0; padding: .4rem .9rem; border-radius: 999px; font-weight: bold; background: #e0e7ff; color: #1d4ed8; }
-  #busChips button.on { background: #16a34a; color: #fff; }
+  #busChips button.on, #scChips button.on { background: #16a34a; color: #fff; }
+  #scChips button { margin: 3px 6px 3px 0; padding: .4rem .9rem; border-radius: 999px; font-weight: bold; background: #e0e7ff; color: #1d4ed8; }
+  #scDays button { margin: 2px 4px 2px 0; padding: .4rem .7rem; }
   summary { padding: .35rem 0; font-weight: bold; }
   .dir { color: #1d4ed8; font-size: .75rem; font-weight: bold; }
 </style>
@@ -61,7 +63,36 @@
     </div>
   </div>
 
-  <div id="amModal" hidden style="position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:50;padding:12px">
+  <div id="scModal" hidden style="position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:50;padding:12px;overflow:auto">
+  <div class="card">
+    <b id="scTitle">⏰ 예약 안내</b>
+    <label>요일 (눌러서 선택)</label>
+    <div id="scDays"></div>
+    <button class="g" data-scpre="wk">평일</button> <button class="g" data-scpre="we">주말</button> <button class="g" data-scpre="all">매일</button>
+    <label>시작 ~ 끝 시각</label>
+    <select id="scFH"></select><select id="scFM"></select>
+    <select id="scTH"></select><select id="scTM"></select>
+    <label for="scStop">안내받을 정류장 (즐겨찾기에서)</label>
+    <select id="scStop"></select>
+    <label>안내받을 버스 (눌러서 선택)</label>
+    <div id="scChips"></div>
+    <input id="scBuses" placeholder="목록에 없으면 직접 입력 (예: 150, 207)">
+    <label for="scMin">도착 몇 분 전에 안내할까요?</label>
+    <select id="scMin"></select>
+    <label>안내 방법 (눌러서 켜고 끄기)</label>
+    <button id="scVoice">🔊 음성: 켜짐</button>
+    <button id="scVib">📳 진동: 켜짐</button>
+    <label>반복 안내</label>
+    <select id="scRep"></select>
+    <select id="scGap"></select>
+    <div class="err" id="scErr"></div>
+    <button id="scOk">저장</button>
+    <button class="g" id="scDel" hidden>삭제</button>
+    <button class="g" id="scCancel">취소</button>
+  </div>
+</div>
+
+<div id="amModal" hidden style="position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:50;padding:12px">
   <div class="card" style="margin-top:20%">
     <b id="amTitle">🔔 알람 설정</b>
     <div class="sub" id="amSub"></div>
@@ -111,6 +142,17 @@
     </div>
 
     <div class="card">
+      <b>⏰ 예약 안내</b>
+      <div class="sub">정한 요일·시간에 앱이 알아서 안내를 켜고 끕니다. 자녀 폰에서 만들어도 같은 계정이면 적용됩니다.</div>
+      <div id="schedList"></div>
+      <button id="schedAdd">＋ 예약 추가</button>
+      <div id="exactBox" hidden>
+        <div class="err">⚠ 정확한 시각에 켜지려면 '알람 및 리마인더' 허용이 필요합니다.</div>
+        <button class="g" id="exactBtn">⏰ 정확한 시각 알람 허용</button>
+      </div>
+    </div>
+
+    <div class="card">
       <b>🔍 정류장 찾기</b>
       <select id="city"></select>
       <input id="q" placeholder="정류장 이름 또는 번호">
@@ -139,7 +181,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v15 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v16 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -221,7 +263,7 @@ function fillDirs(root) {
 function localCfg() {
   return { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: clampMin(ls("busAlertMin", 5)),
     hear: ls("busAlertHear", true), vib: ls("busAlertVib", true), rep: Number(ls("busAlertRep", 1)),
-    gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null), bset: ls("busAlertBset", {}) };
+    gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null), bset: ls("busAlertBset", {}), sched: ls("busAlertSched", []) };
 }
 var acctOn = ls("acctOn", false), CFG = localCfg();
 if (acctOn) { var cc = ls("acctCfg", null); if (cc) CFG = cc; }
@@ -231,7 +273,7 @@ var current = null, timer = null, watchStart = 0;
 function listen() { return CFG.hear !== false && !ls("muteHere", false); }
 function stopKey(s) { return s ? String(s.cityCode) + ":" + String(s.nodeid) : ""; }
 function sameStop(a, b) { return !!(a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode)); }
-function sig() { return JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && stopKey(CFG.stop), CFG.bset]); }
+function sig() { return JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && stopKey(CFG.stop), CFG.bset, CFG.sched]); }
 function favs() { return ls("busFavs", []); }
 function stopOut(s) {
   return { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
@@ -278,7 +320,7 @@ function saveAlert(p, extra) {
   var k;
   for (k in p) if (p.hasOwnProperty(k)) CFG[k] = p[k];
   if (!acctOn) {
-    var keys = { on: "busAlertOn", buses: "busAlertBuses", min: "busAlertMin", vib: "busAlertVib", rep: "busAlertRep", gap: "busAlertGap", hear: "busAlertHear", stop: "busAlertStop", bset: "busAlertBset" };
+    var keys = { on: "busAlertOn", buses: "busAlertBuses", min: "busAlertMin", vib: "busAlertVib", rep: "busAlertRep", gap: "busAlertGap", hear: "busAlertHear", stop: "busAlertStop", bset: "busAlertBset", sched: "busAlertSched" };
     for (k in p) if (p.hasOwnProperty(k) && keys[k]) lsSet(keys[k], p[k]);
   } else {
     if (extra) { var m = {}; for (k in p) if (p.hasOwnProperty(k)) m[k] = p[k]; for (k in extra) if (extra.hasOwnProperty(k)) m[k] = extra[k]; cloudWrite(m); }
@@ -292,7 +334,7 @@ function saveAlert(p, extra) {
 
 function applyRemote(d) {
   CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: d.vib !== false,
-    rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null, bset: (d.bset && typeof d.bset === "object") ? d.bset : {} };
+    rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null, bset: (d.bset && typeof d.bset === "object") ? d.bset : {}, sched: (d.sched instanceof Array) ? d.sched : [] };
   lsSet("acctCfg", CFG);
   if (d.scale) setScale(d.scale);
   if (toArr(d.favStops).length || (d.favStops && d.favStops.length === 0)) lsSet("busFavs", d.favStops);
@@ -316,8 +358,15 @@ function watchList() {
   for (i = 0; i < sel.length; i++) { c = busCfgOf(sel[i]); out.push({ no: norm(sel[i]), min: c.min, voice: c.voice, vib: c.vib, rep: c.rep, gap: c.gap }); }
   return out;
 }
+function pushSched() {
+  if (!NATIVE || typeof AndroidBridge.setSchedules !== "function") return;
+  var l = [], i, all = schedList();
+  if (listen()) for (i = 0; i < all.length; i++) if (all[i].on) l.push(all[i]);
+  try { AndroidBridge.setSchedules(JSON.stringify(l)); } catch (e) {}
+}
 function syncNative() {
   if (!NATIVE) return;
+  pushSched();
   try {
     if (acctOn && !listen()) { AndroidBridge.stopWatch(); return; }
     var stop = CFG.stop || current;
@@ -490,6 +539,7 @@ function renderAll() {
   renderFavs();
   renderStopSel();
   renderBusChips();
+  renderSched();
 }
 
 /* ---------- 안내받을 버스 고르기 ---------- */
@@ -512,6 +562,7 @@ fetchRoutes.done = function (k, err, items) {
       routeCache[k] = list;
     }
     renderBusChips();
+    if (typeof renderScChips === "function") renderScChips();
   }
 };
 function selBuses() {
@@ -599,7 +650,7 @@ function startAcct(user) {
     var favOut = favs().map(stopOut);
     if (!snap.exists) {
       var first = { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on, hear: CFG.hear !== false, scale: Number(ls("busScale", 1.5)),
-        vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, bset: CFG.bset || {}, favStops: favOut, favCities: ls("busFavCities", []), updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+        vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, bset: CFG.bset || {}, sched: CFG.sched || [], favStops: favOut, favCities: ls("busFavCities", []), updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
       if (CFG.stop) first.stop = stopOut(CFG.stop);
       return ref.set(first);
     }
@@ -638,6 +689,15 @@ function initFirebase() {
   } catch (e) { setMsg("로그인 기능을 시작하지 못했습니다: " + (e.message || e), true); }
 }
 
+$("schedAdd").onclick = function () { openSched(null); };
+$("exactBtn").onclick = function () { try { AndroidBridge.requestExact(); } catch (e) {} };
+$("scStop").onchange = function () { if (sc) { sc.buses = []; scPaint(); renderScChips(); } };
+$("scBuses").onchange = function () { if (sc) { sc.buses = this.value.split(",").map(function (x) { return x.replace(/^\s+|\s+$/g, ""); }).filter(function (x) { return x; }); renderScChips(); } };
+$("scVoice").onclick = function () { sc.voice = !sc.voice; scPaint(); };
+$("scVib").onclick = function () { sc.vib = !sc.vib; scPaint(); };
+$("scOk").onclick = saveSched;
+$("scDel").onclick = function () { if (!sc || sc.idx == null) return; var l = schedList().filter(function (x, i) { return i !== sc.idx; }); $("scModal").hidden = true; sc = null; saveAlert({ sched: l }); };
+$("scCancel").onclick = function () { $("scModal").hidden = true; sc = null; };
 $("amVoice").onclick = function () { am.voice = !am.voice; amPaint(); };
 $("amVib").onclick = function () { am.vib = !am.vib; amPaint(); };
 $("amOk").onclick = function () {
@@ -653,11 +713,126 @@ document.addEventListener("visibilitychange", function () {
   if (document.visibilityState === "visible" && current) loadArrivals();      // 화면을 다시 켜면 바로 갱신
 });
 
+/* ---------- 예약 안내 ---------- */
+var DAYN = ["", "월", "화", "수", "목", "금", "토", "일"];
+var sc = null;
+function schedList() { return (CFG.sched instanceof Array) ? CFG.sched : []; }
+function pad2(n) { n = String(n); return n.length < 2 ? "0" + n : n; }
+function dayText(d) {
+  var x = d.slice().sort(function (a, b) { return a - b; }), j = x.join(), i, t = [];
+  if (j === "1,2,3,4,5") return "평일";
+  if (j === "6,7") return "주말";
+  if (j === "1,2,3,4,5,6,7") return "매일";
+  for (i = 0; i < x.length; i++) t.push(DAYN[x[i]]);
+  return t.join("·");
+}
+function renderSched() {
+  var l = schedList(), i, s, h = "", ex = true;
+  for (i = 0; i < l.length; i++) {
+    s = l[i];
+    h += '<div class="fav"><div><b>' + dayText(s.d) + " " + esc(s.a) + "~" + esc(s.b) + "</b><br><span class=\"sub\">" + esc(s.stop && s.stop.nodenm) + " · " + esc(s.buses) + " · " + s.m + "분 전" + (s.v ? " 🔊" : "") + (s.z ? " 📳" : "") + (s.r > 1 ? " · " + s.r + "번 반복" : "") + "</span></div>" +
+      '<div><button data-scon="' + i + '"' + (s.on ? "" : ' class="g"') + ">" + (s.on ? "켜짐" : "꺼짐") + '</button><button class="g" data-scedit="' + i + '">수정</button></div></div>';
+  }
+  $("schedList").innerHTML = h || '<div class="sub">예약이 없습니다.</div>';
+  $("schedAdd").hidden = l.length >= 10;
+  try { ex = !(NATIVE && typeof AndroidBridge.exactOk === "function") || AndroidBridge.exactOk(); } catch (e) {}
+  $("exactBox").hidden = ex;
+}
+function scPaint() {
+  var h = "", n;
+  for (n = 1; n <= 7; n++) h += '<button data-scday="' + n + '"' + (sc.days[n] ? "" : ' class="g"') + ">" + DAYN[n] + "</button>";
+  $("scDays").innerHTML = h;
+  $("scVoice").innerHTML = sc.voice ? "🔊 음성: 켜짐" : "🔊 음성: 꺼짐";
+  $("scVoice").className = sc.voice ? "" : "g";
+  $("scVib").innerHTML = sc.vib ? "📳 진동: 켜짐" : "📳 진동: 꺼짐";
+  $("scVib").className = sc.vib ? "" : "g";
+  $("scBuses").value = sc.buses.join(", ");
+}
+function scStopObj() {
+  var v = $("scStop").value, f = favs(), i;
+  for (i = 0; i < f.length; i++) if (stopKey(f[i]) === v) return stopOut(f[i]);
+  return null;
+}
+function renderScChips() {
+  var box = $("scChips");
+  if (!sc || $("scModal").hidden) return;
+  var stop = scStopObj();
+  if (!stop) { box.innerHTML = '<div class="sub">먼저 정류장을 고르세요.</div>'; return; }
+  var k = stopKey(stop), r = routeCache[k];
+  if (r === undefined) { fetchRoutes(stop); box.innerHTML = '<div class="sub">버스 목록을 불러오는 중…</div>'; return; }
+  var selN = sc.buses.map(norm), list = (r instanceof Array) ? r.slice() : [], i, j, has, h = "";
+  for (i = 0; i < sc.buses.length; i++) { has = false; for (j = 0; j < list.length; j++) if (norm(list[j].no) === norm(sc.buses[i])) has = true; if (!has) list.push({ no: sc.buses[i] }); }
+  for (i = 0; i < list.length; i++) h += '<button' + (selN.indexOf(norm(list[i].no)) >= 0 ? ' class="on"' : "") + ' data-scbus="' + esc(list[i].no).replace(/"/g, "&quot;") + '">' + esc(list[i].no) + (list[i].dir ? "<br><small>→ " + esc(list[i].dir) + "</small>" : "") + "</button>";
+  if (r === "loading") h += '<div class="sub">버스 목록을 불러오는 중…</div>';
+  else if (typeof r === "string") h += '<div class="sub err">버스 목록을 가져오지 못했습니다. 아래에 직접 입력하세요.</div>';
+  box.innerHTML = h;
+}
+function openSched(i) {
+  var old = i != null ? schedList()[i] : null, n, hs = [], ms = [0, 10, 20, 30, 40, 50], mins = [], f = favs(), h;
+  for (n = 0; n < 24; n++) hs.push(n);
+  for (n = 5; n <= 20; n++) mins.push(n);
+  fillSel("scFH", hs, function (v) { return pad2(v) + "시"; }); fillSel("scTH", hs, function (v) { return pad2(v) + "시"; });
+  fillSel("scFM", ms, function (v) { return pad2(v) + "분"; }); fillSel("scTM", ms, function (v) { return pad2(v) + "분"; });
+  fillSel("scMin", mins, function (v) { return v + "분 전"; });
+  fillSel("scRep", [1, 2, 3, 5, 10], function (v) { return v === 1 ? "한 번만" : v + "번 반복"; });
+  fillSel("scGap", [30, 60, 120], function (v) { return v === 30 ? "30초마다" : (v / 60) + "분마다"; });
+  h = '<option value="">' + (f.length ? "(고르세요)" : "(즐겨찾기가 없습니다)") + "</option>";
+  for (n = 0; n < f.length; n++) h += '<option value="' + esc(stopKey(f[n])) + '">' + esc(f[n].nodenm) + " (" + esc(f[n].cityName) + ")</option>";
+  $("scStop").innerHTML = h;
+  if (old) {
+    var days = {}, k, a = old.a.split(":"), b = old.b.split(":");
+    for (k = 0; k < old.d.length; k++) days[old.d[k]] = true;
+    sc = { id: old.id, idx: i, on: old.on !== false, days: days, voice: old.v !== false, vib: old.z !== false, buses: String(old.buses || "").split(",").map(function (x) { return x.replace(/^\s+|\s+$/g, ""); }).filter(function (x) { return x; }) };
+    $("scFH").value = String(Number(a[0])); $("scFM").value = String(Number(a[1])); $("scTH").value = String(Number(b[0])); $("scTM").value = String(Number(b[1]));
+    $("scMin").value = String(clampMin(old.m)); $("scRep").value = String(inList(old.r, [1, 2, 3, 5, 10]) ? old.r : 1); $("scGap").value = String(inList(old.g, [30, 60, 120]) ? old.g : 60);
+    $("scStop").value = old.stop ? stopKey(old.stop) : "";
+    $("scTitle").innerHTML = "⏰ 예약 수정";
+  } else {
+    sc = { id: "s" + new Date().getTime().toString(36), idx: null, on: true, days: { 1: true, 2: true, 3: true, 4: true, 5: true }, voice: true, vib: true, buses: [] };
+    $("scFH").value = "7"; $("scFM").value = "0"; $("scTH").value = "9"; $("scTM").value = "0";
+    $("scMin").value = String(clampMin(CFG.min)); $("scRep").value = "1"; $("scGap").value = "60";
+    $("scStop").value = CFG.stop ? stopKey(CFG.stop) : "";
+    $("scTitle").innerHTML = "⏰ 예약 추가";
+  }
+  $("scErr").innerHTML = "";
+  $("scDel").hidden = !old;
+  scPaint();
+  $("scModal").hidden = false;
+  renderScChips();
+}
+function saveSched() {
+  var a = pad2($("scFH").value) + ":" + pad2($("scFM").value), b = pad2($("scTH").value) + ":" + pad2($("scTM").value);
+  var stop = scStopObj(), days = [], n, err = "";
+  for (n = 1; n <= 7; n++) if (sc.days[n]) days.push(n);
+  if (!days.length) err = "요일을 하나 이상 고르세요.";
+  else if (a >= b) err = "끝나는 시각이 시작보다 늦어야 합니다.";
+  else if (!stop) err = "안내받을 정류장을 고르세요.";
+  else if (!sc.buses.length) err = "안내받을 버스를 하나 이상 고르세요.";
+  else if (!sc.voice && !sc.vib) err = "음성이나 진동 중 하나는 켜 주세요.";
+  if (err) { $("scErr").innerHTML = err; return; }
+  var item = { id: sc.id, on: sc.on, d: days, a: a, b: b, stop: stop, buses: sc.buses.join(", "), m: Number($("scMin").value), v: sc.voice, z: sc.vib, r: Number($("scRep").value), g: Number($("scGap").value) };
+  var l = schedList().slice();
+  if (sc.idx != null) l[sc.idx] = item; else l.push(item);
+  $("scModal").hidden = true; sc = null;
+  saveAlert({ sched: l });
+}
+
 /* ---------- 이벤트 ---------- */
 document.addEventListener("click", function (e) {
   var b = e.target;
   while (b && b.tagName !== "BUTTON") b = b.parentNode;
   if (!b || b === document) return;
+  var v;
+  if ((v = b.getAttribute("data-scon")) != null) { var l1 = schedList().slice(), it = {}, kk; for (kk in l1[v]) if (l1[v].hasOwnProperty(kk)) it[kk] = l1[v][kk]; it.on = !it.on; l1[v] = it; saveAlert({ sched: l1 }); return; }
+  if ((v = b.getAttribute("data-scedit")) != null) { openSched(Number(v)); return; }
+  if ((v = b.getAttribute("data-scday")) != null && sc) { sc.days[v] = !sc.days[v]; scPaint(); return; }
+  if ((v = b.getAttribute("data-scpre")) != null && sc) { sc.days = v === "wk" ? { 1: true, 2: true, 3: true, 4: true, 5: true } : v === "we" ? { 6: true, 7: true } : { 1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true }; scPaint(); return; }
+  if ((v = b.getAttribute("data-scbus")) != null && sc) {
+    var ii, idx = -1;
+    for (ii = 0; ii < sc.buses.length; ii++) if (norm(sc.buses[ii]) === norm(v)) idx = ii;
+    if (idx >= 0) sc.buses.splice(idx, 1); else sc.buses.push(v);
+    scPaint(); renderScChips(); return;
+  }
   var al = b.getAttribute("data-alarm");
   if (al != null) {
     openAlarmModal(al);
@@ -665,8 +840,8 @@ document.addEventListener("click", function (e) {
   }
   var bs = b.getAttribute("data-bus");
   if (bs != null) toggleBus(bs);
-  var sc = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");
-  if (sc) { setScale(sc); if (acctOn) cloudWrite({ scale: Number(sc) }); }
+  var fsz = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");
+  if (fsz) { setScale(fsz); if (acctOn) cloudWrite({ scale: Number(fsz) }); }
   if (fv != null) { showStop(favs()[fv]); }
   if (pk != null) {
     var x = searchStops.list[pk], f = favs(), i, has = false;
@@ -716,6 +891,7 @@ $("muteToggle").onclick = function () { lsSet("muteHere", !ls("muteHere", false)
 $("nat").textContent = NATIVE ? "예" : "아니오";
 setScale(ls("busScale", 1.5));
 renderAll();
+pushSched();
 loadCities();
 initFirebase();
 var first = CFG.stop || (favs()[0] || null);
