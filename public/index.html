@@ -35,6 +35,13 @@
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
   .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
+  .chips { display:flex; gap:6px; margin-bottom:8px; }
+  .chip { flex:1; min-width:0; background:#e0e7ff; color:var(--main); padding:.5rem .3rem; border-radius:10px; font-weight:700;
+          white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chip.sel { background:var(--main); color:#fff; outline:0; }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; padding:12px; z-index:50; }
+  .modal .box { background:#fff; border-radius:16px; padding:16px; width:100%; max-width:520px; max-height:92vh; overflow:auto; }
+  .pick { display:flex; gap:6px; margin-top:8px; }
   .bus[data-route] { cursor:pointer; }
   .hint { color:var(--main); font-size:.75rem; }
   .rs { display:flex; align-items:center; gap:8px; padding:.35rem .2rem; border-bottom:1px solid var(--line); }
@@ -100,6 +107,14 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       처음 한 번 "음성 테스트"를 눌러 소리가 나는지 확인하세요.
     </div>
 
+    <label>⭐ 즐겨찾는 시·군 (맨 위에 최대 3개 표시)</label>
+    <div id="fcList"></div>
+    <div class="pick">
+      <select id="fcProv" aria-label="광역시·도"></select>
+      <select id="fcCity" aria-label="시·군·구"></select>
+      <button id="fcAdd">추가</button>
+    </div>
+
     <label>👨‍👩‍👧 계정 (여러 기기에서 같은 설정 사용)</label>
     <div id="acctOut">
       <input id="famEmail" type="email" placeholder="이메일" autocomplete="username">
@@ -130,6 +145,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
   </div>
 
   <div class="card">
+    <div class="chips" id="cityChips" hidden></div>
     <div class="row">
       <select id="prov" aria-label="광역시·도"></select>
       <select id="city" aria-label="시·군·구"></select>
@@ -167,6 +183,20 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
     </div>
     <div id="arrivals"></div>
     <div class="sub" id="updated" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<div class="modal" id="fcModal" hidden>
+  <div class="box">
+    <b style="font-size:1.2rem">⭐ 자주 보는 시·군을 골라 주세요</b>
+    <div class="sub" style="margin-top:.3rem">최대 3개까지 고르면 화면 맨 위에서 한 번에 바꿀 수 있습니다. 나중에 설정에서 바꿀 수 있습니다.</div>
+    <div class="pick"><select id="mp1"></select><select id="mc1"></select></div>
+    <div class="pick"><select id="mp2"></select><select id="mc2"></select></div>
+    <div class="pick"><select id="mp3"></select><select id="mc3"></select></div>
+    <div class="row" style="margin-top:12px">
+      <button id="fcSave">저장</button>
+      <button class="ghost" id="fcLater">나중에</button>
+    </div>
   </div>
 </div>
 
@@ -334,7 +364,7 @@ const PROVS = { "11": "서울특별시", "21": "부산광역시", "22": "대구�
   "25": "대전광역시", "26": "울산광역시", "29": "세종특별자치시", "31": "경기도", "32": "강원특별자치도",
   "33": "충청북도", "34": "충청남도", "35": "전북특별자치도", "36": "전라남도", "37": "경상북도",
   "38": "경상남도", "39": "제주특별자치도" };
-let cityList = [];
+let cityList = [], provList = [];
 
 function fillCities(keepCode) {
   const pv = $("prov").value;
@@ -342,6 +372,7 @@ function fillCities(keepCode) {
   $("city").innerHTML = list.map(c => `<option value="${c.code}">${c.name}</option>`).join("");
   if (keepCode && list.some(c => String(c.code) === String(keepCode))) $("city").value = keepCode;
   lsSet("busCity", $("city").value);
+  renderChips();
 }
 
 async function loadCities() {
@@ -353,12 +384,81 @@ async function loadCities() {
     $("prov").innerHTML = provs.map(p => `<option>${p}</option>`).join("");
     const saved = ls("busCity", null);
     const start = cityList.find(c => c.code === String(saved)) || cityList.find(c => c.name.includes(DEFAULT_CITY_NAME)) || cityList[0];
+    provList = provs;
     if (start) { $("prov").value = start.prov; fillCities(start.code); }
+    initFavCities();
   } catch (e) { $("city").innerHTML = `<option>도시 목록 오류: ${e.message}</option>`; }
 }
 
 $("prov").onchange = () => fillCities();
-$("city").onchange = () => lsSet("busCity", $("city").value);
+$("city").onchange = () => { lsSet("busCity", $("city").value); renderChips(); };
+
+/* ---- 즐겨찾는 시·군 (최대 3개) ---- */
+const MAXFC = 3;
+const fcs = () => ls("busFavCities", []);
+const saveFcs = a => lsSet("busFavCities", a.slice(0, MAXFC));
+
+// 광역시·도 + 시·군·구 한 쌍의 선택 상자를 채움
+function bindPicker(pEl, cEl, blank) {
+  pEl.innerHTML = (blank ? `<option value="">광역시·도 선택</option>` : "") + provList.map(p => `<option>${p}</option>`).join("");
+  const fill = () => {
+    const list = cityList.filter(c => c.prov === pEl.value);
+    cEl.innerHTML = list.map(c => `<option value="${c.code}">${c.name}</option>`).join("");
+  };
+  pEl.onchange = fill;
+  fill();
+}
+
+function renderChips() {
+  const f = fcs();
+  $("cityChips").hidden = !f.length;
+  $("cityChips").innerHTML = f.map(c =>
+    `<button class="chip${String(c.code) === String($("city").value) ? " sel" : ""}" data-fcc="${c.code}">${c.name}</button>`).join("");
+  $("fcList").innerHTML = f.length
+    ? f.map((c, i) => `<div class="stop"><div><b>${c.name}</b> <small>${c.prov}</small></div>
+        <div class="btns"><button class="ghost" data-fcdel="${i}">삭제</button></div></div>`).join("")
+    : `<div class="sub">아직 없습니다. 아래에서 시·군을 골라 '추가'를 누르세요.</div>`;
+}
+
+function initFavCities() {
+  bindPicker($("fcProv"), $("fcCity"), false);
+  ["1", "2", "3"].forEach(n => bindPicker($("mp" + n), $("mc" + n), true));
+  renderChips();
+  if (!fcs().length && !ls("fcAsked", false)) $("fcModal").hidden = false;   // 처음 실행 시 팝업
+}
+
+function pickCity(code) {
+  const c = cityList.find(x => x.code === String(code));
+  if (!c) return;
+  $("prov").value = c.prov;
+  fillCities(c.code);
+}
+
+$("fcAdd").onclick = () => {
+  const code = $("fcCity").value, c = cityList.find(x => x.code === code), f = fcs();
+  if (!c) return;
+  if (f.some(x => x.code === code)) return;
+  if (f.length >= MAXFC) { alert("즐겨찾는 시·군은 최대 3개입니다. 하나를 삭제한 뒤 추가하세요."); return; }
+  f.push({ code: c.code, name: c.name, prov: c.prov });
+  saveFcs(f); renderChips();
+};
+$("fcSave").onclick = () => {
+  const f = [];
+  for (const n of ["1", "2", "3"]) {
+    const code = $("mc" + n).value, c = $("mp" + n).value && cityList.find(x => x.code === code);
+    if (c && !f.some(x => x.code === c.code)) f.push({ code: c.code, name: c.name, prov: c.prov });
+  }
+  saveFcs(f); lsSet("fcAsked", true); renderChips();
+  $("fcModal").hidden = true;
+  if (f.length) pickCity(f[0].code);
+};
+$("fcLater").onclick = () => { lsSet("fcAsked", true); $("fcModal").hidden = true; };
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.fcc) pickCity(b.dataset.fcc);
+  if (b.dataset.fcdel != null) { const f = fcs(); f.splice(Number(b.dataset.fcdel), 1); saveFcs(f); renderChips(); }
+});
 
 async function searchStops() {
   const q = $("q").value.trim();
@@ -718,7 +818,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v9 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v10 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
