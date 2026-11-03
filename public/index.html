@@ -137,7 +137,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       <div class="sub" id="famStop" style="margin-top:6px"></div>
       <div class="sub" style="margin-top:4px">
         ※ 위의 '버스 번호 / 몇 분 전 / 음성 안내'를 바꾸면 같은 계정의 모든 기기에 적용됩니다.
-        안내할 정류장은 아래에서 검색한 뒤 '안내 정류장으로 설정'을 누르세요.
+        안내할 정류장은 검색해서 즐겨찾기에 추가한 뒤, 즐겨찾기에서 '안내 정류장으로 설정'을 누르세요.
         '음성 안내 듣기'는 같은 계정의 모든 기기에 똑같이 적용되고, '이 기기에서만 듣지 않기'는 지금 쓰는 이 기기에만 적용됩니다.
         (예: 자녀 폰에서만 소리가 나지 않게 하려면 자녀 폰에서 '이 기기에서만 듣지 않기'를 누르세요.)
       </div>
@@ -164,7 +164,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
   </div>
 
   <div class="card" id="stopsBox" style="display:none">
-    <b>정류장</b>
+    <b>정류장</b> <small>(이름을 누르면 도착정보)</small>
     <div id="stops"></div>
   </div>
 
@@ -362,16 +362,14 @@ function renderFavs() {
   $("favTitle").textContent = cn ? `즐겨찾기 (${cn})` : "즐겨찾기";
   $("favs").innerHTML = rows.map(({ s, i }) =>
     `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
-     <div class="btns"><button data-fav="${i}">보기</button> <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
+     <div class="btns"><button data-fav="${i}">보기</button>${acctOn ? ` <button class="ghost" data-setfav="${i}">안내 정류장으로 설정</button>` : ""} <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
 }
 
 function renderStops() {
   $("stops").innerHTML = window._stops.map((s, i) => {
     const on = isFav(s);
-    const setBtn = acctOn ? `<button data-setstop="${i}">안내 정류장으로 설정</button>` : "";
-    return `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
-      <div class="btns">${setBtn}<button data-st="${i}">도착정보</button>
-      <button class="ghost" data-add="${i}">${on ? "해제" : "추가"}</button></div></div>`;
+    return `<div class="stop"><div class="stn" data-stn="${i}" style="cursor:pointer;flex:1;min-width:0"><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
+      <div class="btns"><button class="${on ? "ghost" : ""}" data-add="${i}">${on ? "★ 즐겨찾기 해제" : "☆ 즐겨찾기 추가"}</button></div></div>`;
   }).join("");
 }
 
@@ -708,8 +706,9 @@ function renderFam() {
     $("muteToggle").classList.toggle("sel", mute);
     $("famStop").textContent = CFG.stop
       ? `안내 정류장: ${CFG.stop.nodenm} (${CFG.stop.cityName})`
-      : "안내 정류장이 아직 없습니다. 아래에서 검색해 '안내 정류장으로 설정'을 누르세요.";
+      : "안내 정류장이 아직 없습니다. 정류장을 즐겨찾기에 추가한 뒤 '안내 정류장으로 설정'을 누르세요.";
   }
+  renderFavs();
   if (window._stops) renderStops();
 }
 
@@ -780,6 +779,11 @@ document.addEventListener("click", e => {
   const d = b.dataset;
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
+  if (d.setfav != null) {
+    const s = favs()[d.setfav];
+    saveAlert({ stop: { cityCode: String(s.cityCode), nodeid: String(s.nodeid), nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? ""), cityName: String(s.cityName) } });
+    famMsg("안내 정류장을 '" + s.nodenm + "'(으)로 설정했습니다.");
+  }
   if (d.setstop != null) {
     const s = window._stops[d.setstop];
     saveAlert({ stop: { cityCode: String(s.cityCode), nodeid: String(s.nodeid), nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? ""), cityName: String(s.cityName) } });
@@ -835,6 +839,10 @@ document.addEventListener("click", e => {
   const row = e.target.closest(".bus[data-route]");
   if (row && current) showRoute(row.dataset.route, row.dataset.routeno);
 });
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-stn]");
+  if (el && !e.target.closest("button")) showArrivals(window._stops[el.dataset.stn]);   // 정류장 이름을 누르면 도착정보
+});
 $("routeClose").onclick = closeRoute;
 $("routeRefresh").onclick = () => { if (routeSel) loadRoute(false); };
 
@@ -853,7 +861,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v13 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v14 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
