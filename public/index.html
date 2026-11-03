@@ -131,13 +131,15 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
     <div id="acctIn" hidden>
       <div class="sub" id="famWho"></div>
       <div class="row" style="margin-top:6px">
-        <button id="listenToggle">이 기기에서 음성 안내 듣기: 켜짐</button>
+        <button id="hearToggle">음성 안내 듣기: 켜짐</button>
+        <button class="ghost" id="muteToggle">이 기기에서만 듣지 않기: 선택 안 함</button>
       </div>
       <div class="sub" id="famStop" style="margin-top:6px"></div>
       <div class="sub" style="margin-top:4px">
         ※ 위의 '버스 번호 / 몇 분 전 / 음성 안내'를 바꾸면 같은 계정의 모든 기기에 적용됩니다.
         안내할 정류장은 아래에서 검색한 뒤 '안내 정류장으로 설정'을 누르세요.
-        자녀 폰에서 소리가 나지 않게 하려면 '음성 안내 듣기'를 끄세요.
+        '음성 안내 듣기'는 같은 계정의 모든 기기에 똑같이 적용되고, '이 기기에서만 듣지 않기'는 지금 쓰는 이 기기에만 적용됩니다.
+        (예: 자녀 폰에서만 소리가 나지 않게 하려면 자녀 폰에서 '이 기기에서만 듣지 않기'를 누르세요.)
       </div>
       <button class="ghost" id="famOut" style="margin-top:6px">로그아웃</button>
     </div>
@@ -247,14 +249,15 @@ const announced = {};          // 버스별 안내 기록 {횟수, 마지막 시
 /* ================= 안내 설정(CFG): 기기 안에만 저장 또는 계정(클라우드) ================= */
 let acctOn = ls("acctOn", false);          // 이메일 계정으로 로그인해 설정을 클라우드와 동기화 중인지
 const localCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)),
-  vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: null });
+  hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: null });
 let CFG = localCfg();
 if (acctOn) { const c = ls("acctCfg", null); if (c) CFG = c; }   // 인터넷이 없어도 마지막 설정 사용
 let FB = null, authUser = null, unsubA = null, lastSig = "";
 
-const listen = () => ls("listenHere", true) !== false;   // 이 기기에서 음성 안내를 낼지
+// 이 기기에서 음성 안내를 낼지: 계정 전체 설정(hear)이 켜져 있고, 이 기기에서 '듣지 않기'를 고르지 않았을 때
+const listen = () => CFG.hear !== false && !ls("muteHere", false);
 const alertCfg = () => CFG;
-const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid]);
+const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid]);
 const sameStop = (a, b) => a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode);
 const activeStop = () => (acctOn && CFG.stop) ? CFG.stop : current;
 
@@ -265,6 +268,7 @@ function saveAlert(p) {
     if ("buses" in p) lsSet("busAlertBuses", p.buses);
     if ("min" in p) lsSet("busAlertMin", p.min);
     if ("vib" in p) lsSet("busAlertVib", p.vib);
+    if ("hear" in p) lsSet("busAlertHear", p.hear);
     if ("rep" in p) lsSet("busAlertRep", p.rep);
     if ("gap" in p) lsSet("busAlertGap", p.gap);
   } else {
@@ -287,9 +291,10 @@ async function cloudWrite(p) {
 }
 
 function applyRemote(d) {
-  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, vib: !!d.vib,
+  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, hear: d.hear !== false, vib: !!d.vib,
           rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
+  if (d.scale) setScale(d.scale, true);
   if (Array.isArray(d.favStops)) { lsSet("busFavs", d.favStops); renderFavs(); }
   if (Array.isArray(d.favCities)) {
     lsSet("busFavCities", d.favCities);
@@ -337,9 +342,9 @@ async function call(op, params = {}) {
   return toArr(j.response?.body?.items?.item);
 }
 
-function setScale(s) {
+function setScale(s, fromRemote) {
   document.documentElement.style.setProperty("--scale", s);
-  lsSet("busScale", s);
+  lsSet("busScale", Number(s));
   document.querySelectorAll("#fontBtns button").forEach(b => b.classList.toggle("sel", Number(b.dataset.scale) === Number(s)));
 }
 
@@ -692,8 +697,11 @@ function renderFam() {
   $("acctIn").hidden = !acctOn;
   if (acctOn) {
     $("famWho").textContent = "로그인: " + ((authUser && authUser.email) || ls("acctEmail", ""));
-    $("listenToggle").textContent = "이 기기에서 음성 안내 듣기: " + (listen() ? "켜짐" : "꺼짐");
-    $("listenToggle").classList.toggle("on", listen());
+    $("hearToggle").textContent = "음성 안내 듣기(모든 기기): " + (CFG.hear !== false ? "켜짐" : "꺼짐");
+    $("hearToggle").classList.toggle("on", CFG.hear !== false);
+    const mute = !!ls("muteHere", false);
+    $("muteToggle").textContent = "이 기기에서만 듣지 않기: " + (mute ? "선택함" : "선택 안 함");
+    $("muteToggle").classList.toggle("sel", mute);
     $("famStop").textContent = CFG.stop
       ? `안내 정류장: ${CFG.stop.nodenm} (${CFG.stop.cityName})`
       : "안내 정류장이 아직 없습니다. 아래에서 검색해 '안내 정류장으로 설정'을 누르세요.";
@@ -731,10 +739,12 @@ async function startAcct(user) {
   const localFavCities = ls("busFavCities", []).map(c => ({ code: String(c.code), name: String(c.name), prov: String(c.prov) }));
   if (!snap.exists()) {           // 처음 로그인: 이 기기의 현재 설정을 계정에 올림
     await FB.setDoc(ref, { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
+      hear: CFG.hear !== false, scale: Number(ls("busScale", 1.5)),
       vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60,
       favStops: localFavStops, favCities: localFavCities, updatedAt: FB.serverTimestamp() });
   } else {                        // 계정에 아직 없는 항목만 이 기기 것으로 채움
     const d = snap.data(), add = {};
+    if (!d.scale) add.scale = Number(ls("busScale", 1.5));
     if (!Array.isArray(d.favStops) && localFavStops.length) add.favStops = localFavStops;
     if (!Array.isArray(d.favCities) && localFavCities.length) add.favCities = localFavCities;
     if (Object.keys(add).length) await FB.setDoc(ref, { ...add, updatedAt: FB.serverTimestamp() }, { merge: true });
@@ -764,7 +774,7 @@ document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b) return;
   const d = b.dataset;
-  if (d.scale) setScale(d.scale);
+  if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
   if (d.setstop != null) {
     const s = window._stops[d.setstop];
@@ -814,7 +824,8 @@ $("voiceTest").onclick = () => {
 $("famSignIn").onclick = () => doAuth("in");
 $("famSignUp").onclick = () => doAuth("up");
 $("famOut").onclick = logout;
-$("listenToggle").onclick = () => { lsSet("listenHere", !listen()); renderFam(); syncNative(); };
+$("hearToggle").onclick = () => saveAlert({ hear: CFG.hear === false });
+$("muteToggle").onclick = () => { lsSet("muteHere", !ls("muteHere", false)); renderFam(); syncNative(); };
 
 document.addEventListener("click", e => {
   const row = e.target.closest(".bus[data-route]");
@@ -838,7 +849,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v11 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v12 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
