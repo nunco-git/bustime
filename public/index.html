@@ -35,6 +35,10 @@
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
   .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
+  details.grp { border-top:1px solid var(--line); margin-top:.7rem; padding-top:.4rem; }
+  details.inner { margin-top:.5rem; }
+  summary { font-weight:700; cursor:pointer; padding:.35rem 0; }
+  details.inner summary { font-weight:600; color:var(--main); font-size:.9rem; }
   #map { height:340px; border-radius:12px; margin-top:8px; z-index:0; }
   .mapwrap { position:relative; }
   .cross { position:absolute; left:50%; top:calc(50% + 4px); width:26px; height:26px; margin:-13px 0 0 -13px; pointer-events:none; z-index:500;
@@ -80,82 +84,88 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       <button class="ghost" data-scale="1.75">아주 크게</button>
     </div>
 
-    <label>🔔 음성 안내</label>
-    <div class="row">
-      <button id="alertToggle">꺼짐</button>
-      <button class="ghost" id="voiceTest">음성 테스트</button>
-    </div>
-    <label for="alertBus">안내받을 버스 번호 (여러 개는 쉼표로)</label>
-    <input id="alertBus" placeholder="예: 150, 207">
-    <label for="alertStop">안내받을 정류장</label>
-    <select id="alertStop"></select>
-    <div class="row" style="margin-top:6px">
-      <input id="asQ" placeholder="정류장 검색 (위에서 고른 시·군)">
-      <button class="ghost" id="asSearch">검색</button>
-    </div>
-    <div id="asRes"></div>
-    <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
-    <select id="alertMin">
-      <option>1</option><option>2</option><option>3</option><option selected>5</option>
-      <option>7</option><option>10</option><option>15</option>
-    </select>
-    <label>📳 진동</label>
-    <div class="row">
-      <button id="vibToggle">꺼짐</button>
-      <button class="ghost" id="vibTest">진동 테스트</button>
-    </div>
-    <label for="alertRep">🔁 반복 안내 (버스가 올 때까지 다시 알려 줌)</label>
-    <div class="row">
-      <select id="alertRep">
-        <option value="1">한 번만</option><option value="2">2번</option><option value="3">3번</option>
-        <option value="5">5번</option><option value="10">10번</option>
+    <details class="grp" open>
+      <summary>🔔 음성 안내</summary>
+      <div class="row">
+        <button id="alertToggle">꺼짐</button>
+        <button class="ghost" id="voiceTest">음성 테스트</button>
+      </div>
+      <label for="alertBus">안내받을 버스 번호 (여러 개는 쉼표로)</label>
+      <input id="alertBus" placeholder="예: 150, 207">
+      <label for="alertStop">안내받을 정류장</label>
+      <select id="alertStop"></select>
+      <details class="inner">
+        <summary>🔍 정류장 검색해서 지정</summary>
+        <div class="row" style="margin-top:6px">
+          <input id="asQ" placeholder="정류장 검색 (위에서 고른 시·군)">
+          <button class="ghost" id="asSearch">검색</button>
+        </div>
+        <div id="asRes"></div>
+      </details>
+      <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
+      <select id="alertMin">
+        <option>1</option><option>2</option><option>3</option><option selected>5</option>
+        <option>7</option><option>10</option><option>15</option>
       </select>
-      <select id="alertGap">
-        <option value="30">30초마다</option><option value="60">1분마다</option><option value="120">2분마다</option>
-      </select>
-    </div>
+    </details>
+
+    <details class="grp">
+      <summary>📳 진동 · 🔁 반복</summary>
+      <label>진동</label>
+      <div class="row">
+        <button id="vibToggle">꺼짐</button>
+        <button class="ghost" id="vibTest">진동 테스트</button>
+      </div>
+      <label for="alertRep">반복 안내 (버스가 올 때까지 다시 알려 줌)</label>
+      <div class="row">
+        <select id="alertRep">
+          <option value="1">한 번만</option><option value="2">2번</option><option value="3">3번</option>
+          <option value="5">5번</option><option value="10">10번</option>
+        </select>
+        <select id="alertGap">
+          <option value="30">30초마다</option><option value="60">1분마다</option><option value="120">2분마다</option>
+        </select>
+      </div>
+    </details>
+
+    <details class="grp">
+      <summary>⭐ 즐겨찾는 시·군 (맨 위 최대 3개)</summary>
+      <div id="fcList"></div>
+      <div class="pick">
+        <select id="fcProv" aria-label="광역시·도"></select>
+        <select id="fcCity" aria-label="시·군·구"></select>
+        <button id="fcAdd">추가</button>
+      </div>
+    </details>
+
+    <details class="grp">
+      <summary>👨‍👩‍👧 계정 (여러 기기 같은 설정)</summary>
+      <div id="acctOut">
+        <input id="famEmail" type="email" placeholder="이메일" autocomplete="username">
+        <input id="famPw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" style="margin-top:6px">
+        <div class="row" style="margin-top:8px">
+          <button id="famSignIn">로그인</button>
+          <button class="ghost" id="famSignUp">가입</button>
+        </div>
+        <div class="sub" style="margin-top:.4rem">같은 이메일로 여러 기기에서 로그인하면 설정이 모두 똑같이 저장됩니다. (처음이면 '가입')</div>
+      </div>
+      <div id="acctIn" hidden>
+        <div class="sub" id="famWho"></div>
+        <div class="row" style="margin-top:6px">
+          <button id="hearToggle">음성 안내 듣기: 켜짐</button>
+          <button class="ghost" id="muteToggle">이 기기에서만 듣지 않기: 선택 안 함</button>
+        </div>
+        <div class="sub" style="margin-top:4px">'음성 안내 듣기'는 모든 기기에, '이 기기에서만 듣지 않기'는 이 기기에만 적용됩니다.</div>
+        <button class="ghost" id="famOut" style="margin-top:6px">로그아웃</button>
+      </div>
+      <div class="sub" id="famMsg" style="margin-top:.4rem"></div>
+    </details>
+
     <div class="sub" id="alertNote" style="margin-top:.6rem">
       ※ 음성 안내를 받으려면 해당 정류장의 도착정보 화면을 켜 두어야 합니다.
       화면이 꺼지거나 다른 앱으로 넘어가면 안내가 나오지 않을 수 있습니다.
       처음 한 번 "음성 테스트"를 눌러 소리가 나는지 확인하세요.
     </div>
-
-    <label>⭐ 즐겨찾는 시·군 (맨 위에 최대 3개 표시)</label>
-    <div id="fcList"></div>
-    <div class="pick">
-      <select id="fcProv" aria-label="광역시·도"></select>
-      <select id="fcCity" aria-label="시·군·구"></select>
-      <button id="fcAdd">추가</button>
-    </div>
-
-    <label>👨‍👩‍👧 계정 (여러 기기에서 같은 설정 사용)</label>
-    <div id="acctOut">
-      <input id="famEmail" type="email" placeholder="이메일" autocomplete="username">
-      <input id="famPw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" style="margin-top:6px">
-      <div class="row" style="margin-top:8px">
-        <button id="famSignIn">로그인</button>
-        <button class="ghost" id="famSignUp">가입</button>
-      </div>
-      <div class="sub" style="margin-top:.4rem">
-        같은 이메일로 어르신 폰과 자녀 폰에서 모두 로그인하면, 즐겨찾는 시·군, 즐겨찾기 정류장, 버스 번호·안내 시간·진동·반복 설정이 모든 기기에서 똑같이 저장되고 바로 반영됩니다.
-        (처음이면 '가입'을 누르세요)
-      </div>
-    </div>
-    <div id="acctIn" hidden>
-      <div class="sub" id="famWho"></div>
-      <div class="row" style="margin-top:6px">
-        <button id="hearToggle">음성 안내 듣기: 켜짐</button>
-        <button class="ghost" id="muteToggle">이 기기에서만 듣지 않기: 선택 안 함</button>
-      </div>
-      <div class="sub" style="margin-top:4px">
-        ※ 위의 '버스 번호 / 몇 분 전 / 음성 안내'를 바꾸면 같은 계정의 모든 기기에 적용됩니다.
-        안내받을 정류장은 위의 '안내받을 정류장'에서 고르거나 검색해서 지정하세요.
-        '음성 안내 듣기'는 같은 계정의 모든 기기에 똑같이 적용되고, '이 기기에서만 듣지 않기'는 지금 쓰는 이 기기에만 적용됩니다.
-        (예: 자녀 폰에서만 소리가 나지 않게 하려면 자녀 폰에서 '이 기기에서만 듣지 않기'를 누르세요.)
-      </div>
-      <button class="ghost" id="famOut" style="margin-top:6px">로그아웃</button>
-    </div>
-    <div class="sub" id="famMsg" style="margin-top:.4rem"></div>
   </div>
 
   <div class="card">
@@ -365,7 +375,11 @@ async function call(op, params = {}) {
   u.searchParams.set("t", Date.now()); // 캐시된 이전 결과가 나오지 않도록
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   const r = await fetch(u);
-  const j = await r.json();
+  const text = await r.text();
+  let j;
+  try { j = JSON.parse(text); }
+  catch { throw new Error("공공데이터 응답 오류: " + (text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120) || r.status)); }
+  if (!j.response) throw new Error(j.error ? "서버 오류: " + j.error + " (Function을 다시 배포했는지 확인하세요)" : "응답 형식이 올바르지 않습니다.");
   const h = j.response?.header;
   if (h && h.resultCode !== "00") throw new Error(h.resultMsg || "API 오류");
   return toArr(j.response?.body?.items?.item);
@@ -1082,12 +1096,12 @@ renderAlertUi();
 if (NATIVE) $("alertNote").textContent =
   "※ 안내는 지금 보고 있는(또는 지정된) 정류장 기준입니다. 정류장의 도착정보를 먼저 열고 음성 안내를 켜세요. " +
   "그 뒤에는 화면을 끄거나 다른 앱을 써도 안내가 나옵니다. (최대 60분, 상단 알림의 '안내 종료'로 끌 수 있습니다)";
-{ // 진단용: 현재 화면 버전과 앱 연결 여부 표시
+{ // 진단용: 화면 버전과 앱 연결 여부 (페이지 맨 아래에 작게)
   const v = document.createElement("div");
   v.className = "sub";
-  v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v20 · 앱 연결: " + (NATIVE ? "예" : "아니오");
-  $("settings").appendChild(v);
+  v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
+  v.textContent = "v21 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
 renderFam();
