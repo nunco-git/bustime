@@ -159,7 +159,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
   </div>
 
   <div class="card" id="favBox" style="display:none">
-    <b>즐겨찾기</b>
+    <b id="favTitle">즐겨찾기</b>
     <div id="favs"></div>
   </div>
 
@@ -355,9 +355,12 @@ const saveFavs = f => { lsSet("busFavs", f); if (acctOn) cloudWrite({ favStops: 
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
 
 function renderFavs() {
-  const f = favs();
-  $("favBox").style.display = f.length ? "" : "none";
-  $("favs").innerHTML = f.map((s, i) =>
+  const cc = $("city").value;          // 지금 선택한 시·군의 즐겨찾기만 표시 (시·군 목록이 아직 없으면 전체)
+  const rows = favs().map((s, i) => ({ s, i })).filter(x => !cc || String(x.s.cityCode) === String(cc));
+  $("favBox").style.display = rows.length ? "" : "none";
+  const cn = rows.length && $("city").selectedOptions[0] ? $("city").selectedOptions[0].text : "";
+  $("favTitle").textContent = cn ? `즐겨찾기 (${cn})` : "즐겨찾기";
+  $("favs").innerHTML = rows.map(({ s, i }) =>
     `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
      <div class="btns"><button data-fav="${i}">보기</button> <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
 }
@@ -386,6 +389,7 @@ function fillCities(keepCode) {
   if (keepCode && list.some(c => String(c.code) === String(keepCode))) $("city").value = keepCode;
   lsSet("busCity", $("city").value);
   renderChips();
+  renderFavs();
 }
 
 async function loadCities() {
@@ -404,7 +408,7 @@ async function loadCities() {
 }
 
 $("prov").onchange = () => fillCities();
-$("city").onchange = () => { lsSet("busCity", $("city").value); renderChips(); };
+$("city").onchange = () => { lsSet("busCity", $("city").value); renderChips(); renderFavs(); };
 
 /* ---- 즐겨찾는 시·군 (최대 3개) ---- */
 const MAXFC = 3;
@@ -849,7 +853,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v12 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v13 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
