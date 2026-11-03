@@ -35,6 +35,15 @@
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
   .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
+  .bus[data-route] { cursor:pointer; }
+  .hint { color:var(--main); font-size:.75rem; }
+  .rs { display:flex; align-items:center; gap:8px; padding:.35rem .2rem; border-bottom:1px solid var(--line); }
+  .rs .ord { width:2.2rem; text-align:right; color:var(--sub); font-size:.75rem; flex:none; }
+  .rs .nm { flex:1; min-width:0; }
+  .rs.me { background:#dbeafe; border-radius:8px; font-weight:800; }
+  .rs.here { background:#fef9c3; font-weight:800; border-radius:8px; }
+  .tag { font-size:.7rem; background:#16a34a; color:#fff; border-radius:6px; padding:1px 6px; margin-left:4px; white-space:nowrap; }
+  .tag.m { background:var(--main); }
 </style>
 
 <script>
@@ -138,6 +147,16 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
   <div class="card" id="stopsBox" style="display:none">
     <b>정류장</b>
     <div id="stops"></div>
+  </div>
+
+  <div class="card" id="routeBox" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <b id="routeTitle"></b>
+      <span class="row"><button class="ghost" id="routeRefresh">새로고침</button><button class="ghost" id="routeClose">닫기</button></span>
+    </div>
+    <div class="sub" id="routeSummary" style="margin:.4rem 0"></div>
+    <div id="routeList"></div>
+    <div class="sub" id="routeUpdated" style="margin-top:8px"></div>
   </div>
 
   <div class="card" id="arrBox" style="display:none">
@@ -428,6 +447,7 @@ function renderAlertUi() {
 /* ================= 도착정보 ================= */
 async function showArrivals(stop) {
   current = stop;
+  if (typeof closeRoute === "function") closeRoute();   // 다른 정류장으로 바꾸면 노선 창 닫기
   watchStart = Date.now();
   $("arrBox").style.display = "";
   $("arrTitle").textContent = stop.nodenm;
@@ -459,13 +479,76 @@ async function loadArrivals() {
       $("arrivals").innerHTML = items.map(b => {
         const m = Math.floor((b.arrtime ?? 0) / 60);
         const w = wanted.includes(norm(b.routeno)) ? " watch" : "";
-        return `<div class="bus${w}"><div><span class="no">${b.routeno}</span> <small>${b.routetp ?? ""}${w ? " 🔔" : ""}</small></div>
+        const rid = b.routeid ? ` data-route="${b.routeid}" data-routeno="${b.routeno}"` : "";
+        return `<div class="bus${w}"${rid}><div><span class="no">${b.routeno}</span> <small>${b.routetp ?? ""}${w ? " 🔔" : ""}</small>${rid ? `<br><span class="hint">▶ 눌러서 노선·버스 위치 보기</span>` : ""}</div>
           <div class="min">${m <= 1 ? "곧 도착" : m + "분"}<br><small>${b.arrprevstationcnt ?? "-"}정류장 전</small></div></div>`;
       }).join("");
     }
     $("updated").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
     checkAlerts(items);
   } catch (e) { $("arrivals").innerHTML = `<div class="msg err">${e.message}</div>`; }
+}
+
+/* ================= 노선·버스 위치 ================= */
+let routeSel = null, routeTimer = null, routeStopsCache = {};
+
+async function showRoute(routeid, routeno) {
+  routeSel = { routeid: String(routeid), routeno: String(routeno), cityCode: current.cityCode, nodeid: String(current.nodeid), nodenm: current.nodenm };
+  $("routeBox").style.display = "";
+  $("routeTitle").textContent = busLabel(routeno).replace("버스", "노선");
+  $("routeSummary").textContent = "";
+  $("routeList").innerHTML = `<div class="msg">불러오는 중…</div>`;
+  $("routeBox").scrollIntoView({ behavior: "smooth", block: "start" });
+  clearInterval(routeTimer);
+  await loadRoute(true);
+  routeTimer = setInterval(() => {
+    if (!routeSel || Date.now() - watchStart > MAX_WATCH_MIN * 60000) { clearInterval(routeTimer); return; }
+    loadRoute(false);
+  }, REFRESH_SEC * 1000);
+}
+
+function closeRoute() { routeSel = null; clearInterval(routeTimer); $("routeBox").style.display = "none"; }
+
+async function loadRoute(scroll) {
+  const r = routeSel;
+  if (!r) return;
+  try {
+    const key = r.cityCode + ":" + r.routeid;
+    if (!routeStopsCache[key]) {
+      const st = await call("routeStops", { cityCode: r.cityCode, routeId: r.routeid });
+      routeStopsCache[key] = st.sort((a, b) => Number(a.nodeord) - Number(b.nodeord));
+    }
+    let buses = [], locErr = "";
+    try { buses = await call("busLoc", { cityCode: r.cityCode, routeId: r.routeid }); }
+    catch (e) { locErr = e.message; }
+    if (routeSel !== r) return;
+    renderRoute(r, routeStopsCache[key], buses, locErr, scroll);
+  } catch (e) {
+    if (routeSel === r) $("routeList").innerHTML = `<div class="msg err">${e.message}<br><small>노선 정보를 쓰려면 공공데이터포털에서 '버스노선정보'·'버스위치정보' 활용신청이 필요합니다.</small></div>`;
+  }
+}
+
+function renderRoute(r, stops, buses, locErr, scroll) {
+  if (!stops.length) { $("routeList").innerHTML = `<div class="msg">이 노선의 정류장 정보가 없습니다.</div>`; return; }
+  const mineOrds = stops.filter(s => String(s.nodeid) === r.nodeid).map(s => Number(s.nodeord));
+  const bus = buses.map(b => ({ ord: Number(b.nodeord), nm: b.nodenm, no: String(b.vehicleno || "").slice(-4) })).filter(b => !isNaN(b.ord));
+  const byOrd = {};
+  bus.forEach(b => (byOrd[b.ord] = byOrd[b.ord] || []).push(b));
+  // 내 정류장 쪽으로 오고 있는 버스: 내 정류장 순서 이하에 있는 가장 가까운 버스
+  let near = null;
+  for (const b of bus) for (const m of mineOrds) if (b.ord <= m && (!near || m - b.ord < near.gap)) near = { gap: m - b.ord, b };
+  $("routeSummary").textContent = locErr ? "버스 위치를 불러오지 못했습니다: " + locErr
+    : !bus.length ? "지금 운행 중인 버스 위치 정보가 없습니다."
+    : near ? (near.gap === 0 ? `버스가 '${r.nodenm}' 정류장에 있습니다.` : `가장 가까운 버스가 '${r.nodenm}' 정류장보다 ${near.gap}정류장 앞에 있습니다.`)
+    : `운행 중인 버스 ${bus.length}대 (내 정류장 쪽으로 오는 버스는 아직 없습니다)`;
+  $("routeList").innerHTML = stops.map(s => {
+    const o = Number(s.nodeord), mine = String(s.nodeid) === r.nodeid, here = byOrd[o];
+    const tags = (mine ? `<span class="tag m">내 정류장</span>` : "") +
+      (here ? here.map(b => `<span class="tag">🚌 ${b.no || "버스"}</span>`).join("") : "");
+    return `<div class="rs${here ? " here" : mine ? " me" : ""}" ${mine ? 'data-mine="1"' : ""}><span class="ord">${o}</span><span class="nm">${s.nodenm}</span>${tags}</div>`;
+  }).join("");
+  $("routeUpdated").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
+  if (scroll) { const m = $("routeList").querySelector("[data-mine]"); if (m && m.scrollIntoView) m.scrollIntoView({ block: "center" }); }
 }
 
 /* ================= 계정(로그인) ================= */
@@ -590,6 +673,13 @@ $("famSignUp").onclick = () => doAuth("up");
 $("famOut").onclick = logout;
 $("listenToggle").onclick = () => { lsSet("listenHere", !listen()); renderFam(); syncNative(); };
 
+document.addEventListener("click", e => {
+  const row = e.target.closest(".bus[data-route]");
+  if (row && current) showRoute(row.dataset.route, row.dataset.routeno);
+});
+$("routeClose").onclick = closeRoute;
+$("routeRefresh").onclick = () => { if (routeSel) loadRoute(false); };
+
 $("search").onclick = searchStops;
 $("q").addEventListener("keydown", e => e.key === "Enter" && searchStops());
 $("refresh").onclick = () => { if (current) showArrivals(current); };
@@ -605,7 +695,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v7 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v8 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
