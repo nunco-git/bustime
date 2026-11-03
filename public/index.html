@@ -837,8 +837,13 @@ document.addEventListener("click", e => {
   if (d.add != null) {
     const s = window._stops[d.add];
     const f = favs().filter(x => !(x.nodeid === s.nodeid && x.cityCode === s.cityCode));
-    if (f.length === favs().length) f.push(s);   // 없었으면 추가, 있었으면 해제
-    saveFavs(f); renderFavs(); renderStops();
+    const added = f.length === favs().length;
+    if (added) f.push(s);   // 없었으면 추가, 있었으면 해제
+    saveFavs(f); renderFavs();
+    if (added) {            // 추가하면 검색 결과는 닫고 즐겨찾기에서 보이게 함
+      window._stops = null; $("stops").innerHTML = ""; $("stopsBox").style.display = "none"; $("q").value = "";
+      $("favBox").scrollIntoView && $("favBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } else renderStops();
   }
   if (d.fav != null) showArrivals(favs()[d.fav]);
   if (d.del != null) { const f = favs(); f.splice(d.del, 1); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
@@ -906,7 +911,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v15 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v16 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
