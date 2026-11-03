@@ -183,8 +183,8 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
     <div class="row" style="margin-top:8px">
       <input id="q" placeholder="정류장 이름 또는 번호">
       <button id="search">검색</button>
+      <button class="ghost" id="mapOpen" title="지도에서 정류장 찾기">🗺 지도</button>
     </div>
-    <div class="row" style="margin-top:8px"><button class="ghost" id="mapOpen">🗺 지도에서 정류장 찾기</button></div>
   </div>
 
   <div class="card" id="mapBox" style="display:none">
@@ -1165,7 +1165,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v27 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v28 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
