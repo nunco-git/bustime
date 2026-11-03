@@ -10,6 +10,8 @@ const OPS = {
   cities:   { path: "BusSttnInfoInqireService/getCtyCodeList", params: [] },
   stops:    { path: "BusSttnInfoInqireService/getSttnNoList", params: ["cityCode", "nodeNm", "nodeNo"] },
   arrivals: { path: "ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList", params: ["cityCode", "nodeId"] },
+  // 정류장을 지나가는 버스(노선) 목록
+  stopRoutes: { path: "BusSttnInfoInqireService/getSttnThrghRouteList", params: ["cityCode", "nodeid"] },
   // 좌표(지도 중심) 기준 500m 이내 정류소
   nearby:   { path: "BusSttnInfoInqireService/getCrdntPrxmtSttnList", params: ["gpsLati", "gpsLong"] },
   // 노선별 경유 정류장(순서대로) / 노선별 버스 위치
@@ -19,7 +21,7 @@ const OPS = {
 
 // 공공데이터 호출 횟수 절약용 메모리 캐시 (같은 정류장을 여러 명이 봐도 한 번만 호출)
 const cache = new Map();
-const TTL = { arrivals: 15 * 1000, busLoc: 15 * 1000, stops: 10 * 60 * 1000, nearby: 10 * 60 * 1000, routeStops: 60 * 60 * 1000, cities: 60 * 60 * 1000 };
+const TTL = { arrivals: 15 * 1000, busLoc: 15 * 1000, stops: 10 * 60 * 1000, nearby: 10 * 60 * 1000, stopRoutes: 60 * 60 * 1000, routeStops: 60 * 60 * 1000, cities: 60 * 60 * 1000 };
 
 // ---- 방면 계산: 정류장을 지나는 노선의 '같은 방향 마지막 정류장(종점)' 이름을 모음 ----
 const dirCache = new Map();

@@ -31,6 +31,8 @@
   .row { margin-top: 4px; }
   .fav { display: -webkit-box; display: flex; justify-content: space-between; align-items: center; padding: .4rem 0; border-bottom: 1px solid #e5e7eb; }
   a { color: #1d4ed8; }
+  #busChips button { margin: 3px 6px 3px 0; padding: .4rem .9rem; border-radius: 999px; font-weight: bold; background: #e0e7ff; color: #1d4ed8; }
+  #busChips button.on { background: #16a34a; color: #fff; }
   .dir { color: #1d4ed8; font-size: .75rem; font-weight: bold; }
 </style>
 </head>
@@ -71,10 +73,11 @@
       <label>🔔 음성 안내</label>
       <button id="alertToggle">꺼짐</button>
       <button class="g" id="voiceTest">음성 테스트</button>
-      <label for="alertBus">안내받을 버스 번호 (여러 개는 쉼표로)</label>
-      <input id="alertBus" placeholder="예: 150, 207">
-      <label for="alertStop">안내받을 정류장</label>
+      <label for="alertStop">① 안내받을 정류장</label>
       <select id="alertStop"></select>
+      <label>② 안내받을 버스 (눌러서 선택)</label>
+      <div id="busChips"></div>
+      <input id="alertBus" placeholder="목록에 없으면 직접 입력 (예: 150, 207)">
       <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
       <select id="alertMin">
         <option>1</option><option>2</option><option>3</option><option>5</option>
@@ -111,7 +114,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v5 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v6 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -376,6 +379,47 @@ function renderAll() {
   }
   renderFavs();
   renderStopSel();
+  renderBusChips();
+}
+
+/* ---------- 안내받을 버스 고르기 ---------- */
+var routeCache = {};
+function fetchRoutes(stop) {
+  var k = stopKey(stop);
+  routeCache[k] = "loading";
+  call("stopRoutes", { cityCode: stop.cityCode, nodeid: stop.nodeid }, function (err, items) {
+    if (err) routeCache[k] = "error:" + err.message;
+    else {
+      var seen = {}, list = [], i, no;
+      for (i = 0; i < items.length; i++) { no = String(items[i].routeno); if (!seen[no]) { seen[no] = 1; list.push({ no: no }); } }
+      list.sort(function (a, b) { return (parseInt(a.no, 10) || 1e9) - (parseInt(b.no, 10) || 1e9) || (a.no < b.no ? -1 : 1); });
+      routeCache[k] = list;
+    }
+    renderBusChips();
+  });
+}
+function selBuses() {
+  return String(CFG.buses || "").split(",").map(function (x) { return x.replace(/^\s+|\s+$/g, ""); }).filter(function (x) { return x; });
+}
+function renderBusChips() {
+  var box = $("busChips"), stop = CFG.stop || current;
+  if (!stop) { box.innerHTML = '<div class="sub">먼저 ①에서 안내받을 정류장을 고르세요.</div>'; return; }
+  var k = stopKey(stop), r = routeCache[k];
+  if (r === undefined) { fetchRoutes(stop); box.innerHTML = '<div class="sub">버스 목록을 불러오는 중…</div>'; return; }
+  var sel = selBuses(), selN = sel.map(norm), list = (r instanceof Array) ? r.slice() : [], i, j, has, html;
+  for (i = 0; i < sel.length; i++) { has = false; for (j = 0; j < list.length; j++) if (norm(list[j].no) === norm(sel[i])) has = true; if (!has) list.push({ no: sel[i] }); }
+  html = '<div class="sub">' + esc(stop.nodenm) + " 정류장</div>";
+  for (i = 0; i < list.length; i++) html += '<button' + (selN.indexOf(norm(list[i].no)) >= 0 ? ' class="on"' : "") + ' data-bus="' + esc(list[i].no).replace(/"/g, "&quot;") + '">' + esc(list[i].no) + "</button>";
+  if (r === "loading") html += '<div class="sub">버스 목록을 불러오는 중…</div>';
+  else if (typeof r === "string") html += '<div class="sub err">버스 목록을 가져오지 못했습니다. ' + esc(r.slice(6)) + " 아래에 직접 입력하세요.</div>";
+  else if (!r.length && !list.length) html = '<div class="sub">이 정류장을 지나는 버스 정보가 없습니다. 아래에 직접 입력하세요.</div>';
+  box.innerHTML = html;
+}
+function toggleBus(no) {
+  var sel = selBuses(), i, idx = -1;
+  for (i = 0; i < sel.length; i++) if (norm(sel[i]) === norm(no)) idx = i;
+  if (idx >= 0) sel.splice(idx, 1); else sel.push(no);
+  saveAlert({ buses: sel.join(", ") });
 }
 
 /* ---------- 정류장 찾기 ---------- */
@@ -480,6 +524,8 @@ document.addEventListener("click", function (e) {
   var b = e.target;
   while (b && b.tagName !== "BUTTON") b = b.parentNode;
   if (!b || b === document) return;
+  var bs = b.getAttribute("data-bus");
+  if (bs != null) toggleBus(bs);
   var sc = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");
   if (sc) { setScale(sc); if (acctOn) cloudWrite({ scale: Number(sc) }); }
   if (fv != null) { showStop(favs()[fv]); }

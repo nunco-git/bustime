@@ -35,6 +35,7 @@
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
   .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
+  #busChips button { margin:3px 6px 3px 0; padding:.45rem .9rem; border-radius:999px; font-weight:800; }
   .dir { color:var(--main); font-size:.8rem; font-weight:700; }
   .wrap.inSettings > :not(.top):not(#settings) { display:none !important; }   /* 설정 화면에서는 아래 본 화면을 숨김 */
   details.grp { border-top:1px solid var(--line); margin-top:.7rem; padding-top:.4rem; }
@@ -94,9 +95,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
         <button id="alertToggle">꺼짐</button>
         <button class="ghost" id="voiceTest">음성 테스트</button>
       </div>
-      <label for="alertBus">안내받을 버스 번호 (여러 개는 쉼표로)</label>
-      <input id="alertBus" placeholder="예: 150, 207">
-      <label for="alertStop">안내받을 정류장</label>
+      <label for="alertStop">① 안내받을 정류장</label>
       <select id="alertStop"></select>
       <details class="inner">
         <summary>🔍 정류장 검색해서 지정</summary>
@@ -106,6 +105,9 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
         </div>
         <div id="asRes"></div>
       </details>
+      <label>② 안내받을 버스 (눌러서 선택)</label>
+      <div id="busChips"></div>
+      <input id="alertBus" placeholder="목록에 없으면 직접 입력 (예: 150, 207)" style="margin-top:6px">
       <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
       <select id="alertMin">
         <option>1</option><option>2</option><option>3</option><option selected>5</option>
@@ -672,6 +674,7 @@ function renderAlertUi() {
   $("vibToggle").textContent = CFG.vib ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
   $("vibToggle").classList.toggle("on", !!CFG.vib);
   renderStopSel();
+  renderBusChips();
   $("alertRep").value = String(CFG.rep || 1);
   $("alertGap").value = String(CFG.gap || 60);
 }
@@ -840,6 +843,47 @@ $("mapMe").onclick = () => {
     () => { $("mapMsg").className = "sub err"; $("mapMsg").textContent = "위치를 가져오지 못했습니다. 위치 권한을 허용했는지 확인해 주세요. (앱은 새 버전 설치가 필요합니다)"; },
     { enableHighAccuracy: true, timeout: 15000 });
 };
+
+/* ================= 안내받을 버스 고르기(정류장을 지나는 버스 목록) ================= */
+const routeCache = {};           // "도시:정류장" -> [{no}] | "loading" | "error" | "error:메시지"
+const escH = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+async function fetchRoutes(stop) {
+  const k = stopKey(stop);
+  routeCache[k] = "loading";
+  try {
+    const items = await call("stopRoutes", { cityCode: stop.cityCode, nodeid: stop.nodeid });
+    const seen = {}, list = [];
+    items.forEach(x => { const no = String(x.routeno); if (!seen[no]) { seen[no] = 1; list.push({ no }); } });
+    list.sort((a, b) => (parseInt(a.no, 10) || 1e9) - (parseInt(b.no, 10) || 1e9) || (a.no < b.no ? -1 : 1));
+    routeCache[k] = list;
+  } catch (e) { routeCache[k] = "error:" + e.message; }
+  renderBusChips();
+}
+
+function renderBusChips() {
+  const box = $("busChips");
+  if (!box) return;
+  const stop = CFG.stop || current;
+  if (!stop) { box.innerHTML = `<div class="sub">먼저 ①에서 안내받을 정류장을 고르세요.</div>`; return; }
+  const k = stopKey(stop), r = routeCache[k];
+  if (r === undefined) { fetchRoutes(stop); box.innerHTML = `<div class="sub">버스 목록을 불러오는 중…</div>`; return; }
+  const sel = String(CFG.buses || "").split(",").map(x => x.trim()).filter(Boolean), selN = sel.map(norm);
+  const list = Array.isArray(r) ? r.slice() : [];
+  sel.forEach(b => { if (!list.some(x => norm(x.no) === norm(b))) list.push({ no: b }); });   // 직접 입력한 번호도 보이게
+  let html = list.map(x => `<button class="ghost${selN.includes(norm(x.no)) ? " on" : ""}" data-bus="${escH(x.no)}">${escH(x.no)}</button>`).join("");
+  if (r === "loading") html += `<div class="sub">버스 목록을 불러오는 중…</div>`;
+  else if (typeof r === "string") html += `<div class="sub err">버스 목록을 가져오지 못했습니다. ${escH(r.slice(6))} 아래에 직접 입력하세요.</div>`;
+  else if (!r.length && !list.length) html = `<div class="sub">이 정류장을 지나는 버스 정보가 없습니다. 아래에 직접 입력하세요.</div>`;
+  box.innerHTML = `<div class="sub" style="margin-bottom:2px">${escH(stop.nodenm)} 정류장</div>` + html;
+}
+
+function toggleBus(no) {
+  const sel = String(CFG.buses || "").split(",").map(x => x.trim()).filter(Boolean);
+  const i = sel.findIndex(x => norm(x) === norm(no));
+  if (i >= 0) sel.splice(i, 1); else sel.push(no);
+  saveAlert({ buses: sel.join(", ") });
+}
 
 /* ================= 안내받을 정류장(설정창) ================= */
 const stopKey = x => x ? String(x.cityCode) + ":" + String(x.nodeid) : "";
@@ -1075,6 +1119,7 @@ document.addEventListener("click", e => {
   const d = b.dataset;
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
+  if (d.bus != null) toggleBus(d.bus);
   if (d.asset != null) {      // 설정창 검색 결과에서 지정
     const x = window._asStops[d.asset];
     const f = favs();
@@ -1165,7 +1210,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v29 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v30 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
