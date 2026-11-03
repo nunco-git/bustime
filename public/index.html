@@ -707,13 +707,14 @@ function leafletEngine() {
       map = L.map(id).setView(c, 16);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
       layer = L.layerGroup().addTo(map);
+      map.on("click", () => map.closePopup());      // 지도 빈 곳을 누르면 팝업 닫기
     },
     center() { const c = map.getCenter(); return [c.lat, c.lng]; },
     setView(lat, lng, z) { map.setView([lat, lng], z); },
     resize() { map.invalidateSize(); },
     clear() { layer.clearLayers(); },
     marker(lat, lng, popup) {
-      const m = L.circleMarker([lat, lng], { radius: 11, color: "#fff", weight: 3, fillColor: "#1d4ed8", fillOpacity: 1 });
+      const m = L.circleMarker([lat, lng], { radius: 11, color: "#fff", weight: 3, fillColor: "#1d4ed8", fillOpacity: 1, bubblingMouseEvents: false });
       m.on("click", () => m.bindPopup(popup()).openPopup());
       m.addTo(layer);
     },
@@ -724,7 +725,9 @@ function naverEngine() {
   let map, mks = [], info = null;
   return {
     name: "네이버 지도", credit: "지도 © NAVER Corp.",
-    create(id, c) { map = new naver.maps.Map(id, { center: new naver.maps.LatLng(c[0], c[1]), zoom: 16 }); },
+    create(id, c) { map = new naver.maps.Map(id, { center: new naver.maps.LatLng(c[0], c[1]), zoom: 16 });
+      naver.maps.Event.addListener(map, "click", () => { if (info) info.close(); });   // 지도 빈 곳을 누르면 팝업 닫기
+    },
     center() { const c = map.getCenter(); return [c.lat(), c.lng()]; },
     setView(lat, lng, z) { map.setCenter(new naver.maps.LatLng(lat, lng)); if (z) map.setZoom(z); },
     resize() { naver.maps.Event.trigger(map, "resize"); },
@@ -1221,7 +1224,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v32 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v33 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
