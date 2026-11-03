@@ -61,7 +61,19 @@
     </div>
   </div>
 
-  <div id="set" hidden>
+  <div id="amModal" hidden style="position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:50;padding:12px">
+  <div class="card" style="margin-top:20%">
+    <b id="amTitle">🔔 알람 설정</b>
+    <div class="sub" id="amSub"></div>
+    <label for="amMin">도착 몇 분 전에 안내할까요?</label>
+    <select id="amMin"></select>
+    <div class="sub">안내 시간은 모든 버스에 똑같이 적용됩니다. (5분 ~ 20분 전)</div>
+    <button id="amOk">알람 켜기</button>
+    <button class="g" id="amCancel">취소</button>
+  </div>
+</div>
+
+<div id="set" hidden>
     <div class="top">
       <h1>⚙ 설정</h1>
       <button class="g" id="back">← 돌아가기</button>
@@ -85,10 +97,7 @@
       </details>
       <input id="alertBus" placeholder="목록에 없으면 직접 입력 (예: 150, 207)">
       <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
-      <select id="alertMin">
-        <option>1</option><option>2</option><option>3</option><option>5</option>
-        <option>7</option><option>10</option><option>15</option>
-      </select>
+      <select id="alertMin"><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option>16</option><option>17</option><option>18</option><option>19</option><option>20</option></select>
       <label>📳 진동</label>
       <button id="vibToggle">꺼짐</button>
       <button class="g" id="vibTest">진동 테스트</button>
@@ -123,7 +132,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v13 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v14 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -141,6 +150,7 @@ function ls(k, d) { try { var v = localStorage.getItem(k); return v == null ? d 
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
 function toArr(v) { return v == null || v === "" ? [] : (Object.prototype.toString.call(v) === "[object Array]" ? v : [v]); }
 function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+function clampMin(n) { return Math.min(20, Math.max(5, Number(n) || 5)); }
 function norm(s) { return String(s).replace(/\s+/g, ""); }
 function setMsg(t, err) { var m = $("msg"); m.textContent = t || ""; m.className = "sub" + (err ? " err" : ""); }
 
@@ -202,7 +212,7 @@ function fillDirs(root) {
 
 /* ---------- 설정(CFG): 기기 저장 또는 계정 ---------- */
 function localCfg() {
-  return { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)),
+  return { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: clampMin(ls("busAlertMin", 5)),
     hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)),
     gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null) };
 }
@@ -274,7 +284,7 @@ function saveAlert(p, extra) {
 }
 
 function applyRemote(d) {
-  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, hear: d.hear !== false, vib: !!d.vib,
+  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: !!d.vib,
     rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
   if (d.scale) setScale(d.scale);
@@ -349,7 +359,22 @@ function loadArrivals() {
   });
 }
 
-function alarmBus(no) {
+var amBus = null;
+function alarmOn(no) {
+  var sel = selBuses(), i;
+  if (!CFG.on || !sameStop(CFG.stop, current)) return false;
+  for (i = 0; i < sel.length; i++) if (norm(sel[i]) === norm(no)) return true;
+  return false;
+}
+function openAlarmModal(no) {
+  var sel = $("amMin"), i;
+  amBus = String(no);
+  if (!sel.options.length) for (i = 5; i <= 20; i++) sel.options[sel.options.length] = new Option(i + "분 전", String(i));
+  sel.value = String(clampMin(CFG.min));
+  $("amSub").textContent = no + "번 · " + (current ? current.nodenm : "");
+  $("amModal").hidden = false;
+}
+function alarmBus(no, min) {
   var st = current, i, idx = -1;
   if (!st) return;
   var stop = stopOut(st), f = favs(), has = false;
@@ -362,6 +387,7 @@ function alarmBus(no) {
   p.buses = sel.join(", ");
   if (!same) p.stop = stop;
   if (turnOn && !CFG.on) p.on = true;
+  if (turnOn && min) p.min = clampMin(min);
   saveAlert(p);
   if (turnOn && p.on && NATIVE && listen()) { try { AndroidBridge.speakTest(); } catch (e) {} }
   loadArrivals();
@@ -569,6 +595,9 @@ function initFirebase() {
   } catch (e) { setMsg("로그인 기능을 시작하지 못했습니다: " + (e.message || e), true); }
 }
 
+$("amOk").onclick = function () { $("amModal").hidden = true; if (amBus) alarmBus(amBus, Number($("amMin").value)); amBus = null; };
+$("amCancel").onclick = function () { $("amModal").hidden = true; amBus = null; };
+
 document.addEventListener("visibilitychange", function () {
   if (document.visibilityState === "visible" && current) loadArrivals();      // 화면을 다시 켜면 바로 갱신
 });
@@ -579,7 +608,10 @@ document.addEventListener("click", function (e) {
   while (b && b.tagName !== "BUTTON") b = b.parentNode;
   if (!b || b === document) return;
   var al = b.getAttribute("data-alarm");
-  if (al != null) { alarmBus(al); return; }
+  if (al != null) {
+    if (alarmOn(al)) alarmBus(al); else openAlarmModal(al);
+    return;
+  }
   var bs = b.getAttribute("data-bus");
   if (bs != null) toggleBus(bs);
   var sc = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");

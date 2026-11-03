@@ -121,10 +121,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       </details>
       <input id="alertBus" placeholder="목록에 없으면 직접 입력 (예: 150, 207)" style="margin-top:6px">
       <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
-      <select id="alertMin">
-        <option>1</option><option>2</option><option>3</option><option selected>5</option>
-        <option>7</option><option>10</option><option>15</option>
-      </select>
+      <select id="alertMin"><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option><option>15</option><option>16</option><option>17</option><option>18</option><option>19</option><option>20</option></select>
     </details>
 
     <details class="grp">
@@ -249,6 +246,20 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
   </div>
 </div>
 
+<div class="modal" id="amModal" hidden>
+  <div class="box">
+    <b style="font-size:1.2rem" id="amTitle">🔔 알람 설정</b>
+    <div class="sub" id="amSub" style="margin-top:.3rem"></div>
+    <label for="amMin">도착 몇 분 전에 안내할까요?</label>
+    <select id="amMin"></select>
+    <div class="sub" style="margin-top:4px">안내 시간은 모든 버스에 똑같이 적용됩니다. (5분 ~ 20분 전)</div>
+    <div class="row" style="margin-top:12px">
+      <button id="amOk">알람 켜기</button>
+      <button class="ghost" id="amCancel">취소</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="fcModal" hidden>
   <div class="box">
     <b style="font-size:1.2rem">⭐ 자주 보는 시·군을 골라 주세요</b>
@@ -309,7 +320,8 @@ const announced = {};          // 버스별 안내 기록 {횟수, 마지막 시
 
 /* ================= 안내 설정(CFG): 기기 안에만 저장 또는 계정(클라우드) ================= */
 let acctOn = ls("acctOn", false);          // 이메일 계정으로 로그인해 설정을 클라우드와 동기화 중인지
-const localCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)),
+const clampMin = n => Math.min(20, Math.max(5, Number(n) || 5));   // 안내 시간은 5~20분 전
+const localCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: clampMin(ls("busAlertMin", 5)),
   hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null) });
 let CFG = localCfg();
 if (acctOn) { const c = ls("acctCfg", null); if (c) CFG = c; }   // 인터넷이 없어도 마지막 설정 사용
@@ -353,7 +365,7 @@ async function cloudWrite(p) {
 }
 
 function applyRemote(d) {
-  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, hear: d.hear !== false, vib: !!d.vib,
+  CFG = { on: !!d.on, buses: d.buses || "", min: clampMin(d.min), hear: d.hear !== false, vib: !!d.vib,
           rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
   if (d.scale) setScale(d.scale, true);
@@ -1009,9 +1021,22 @@ async function showArrivals(stop) {
   }, REFRESH_SEC * 1000);
 }
 
+let amBus = null;
+function openAlarmModal(no) {
+  amBus = String(no);
+  const sel = $("amMin");
+  if (!sel.options.length) for (let i = 5; i <= 20; i++) sel.add(new Option(i + "분 전", String(i)));
+  sel.value = String(clampMin(CFG.min));
+  $("amSub").textContent = `${busLabel(no)} · ${current ? current.nodenm : ""}`;
+  $("amModal").hidden = false;
+}
+$("amOk").onclick = () => { $("amModal").hidden = true; if (amBus) alarmBus(amBus, Number($("amMin").value)); amBus = null; };
+$("amCancel").onclick = () => { $("amModal").hidden = true; amBus = null; };
+$("amModal").addEventListener("click", e => { if (e.target === $("amModal")) { $("amModal").hidden = true; amBus = null; } });
+
 // 도착정보 목록에서 바로 알람 설정: 지금 보는 정류장을 안내 정류장으로(즐겨찾기에 없으면 추가) 하고 그 버스를 켜고 끔
 const alarmOn = no => !!CFG.on && sameStop(CFG.stop, current) && String(CFG.buses || "").split(",").map(norm).includes(norm(no));
-function alarmBus(no) {
+function alarmBus(no, min) {
   const st = current;
   if (!st) return;
   const stop = stopOut(st);
@@ -1024,6 +1049,7 @@ function alarmBus(no) {
   const p = { buses: sel.join(", ") };
   if (!same) p.stop = stop;
   if (turnOn && !CFG.on) p.on = true;
+  if (turnOn && min) p.min = clampMin(min);
   saveAlert(p);
   if (turnOn && p.on && (!acctOn || listen())) { if (NATIVE) AndroidBridge.speakTest(); else { speak("음성 안내를 켰습니다."); keepAwake(); } }
   if (turnOn && p.on) askBattery();
@@ -1198,7 +1224,10 @@ document.addEventListener("click", e => {
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
   if (d.bus != null) toggleBus(d.bus);
-  if (d.alarm != null) alarmBus(d.alarm);
+  if (d.alarm != null) {
+    if (alarmOn(d.alarm)) alarmBus(d.alarm);            // 이미 켜진 버스는 바로 해제
+    else openAlarmModal(d.alarm);                       // 아니면 몇 분 전에 안내할지 물어봄
+  }
   if (d.asset != null) {      // 설정창 검색 결과에서 지정
     const x = window._asStops[d.asset];
     const f = favs();
@@ -1290,7 +1319,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v38 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v39 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
