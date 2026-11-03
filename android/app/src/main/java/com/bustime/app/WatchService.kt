@@ -53,7 +53,11 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
     private var nodeNm = ""
     private var wanted: Set<String> = emptySet()
     private var minutes = 5
-    private val announced = mutableSetOf<String>()
+    private var vibrate = false
+    private var repeatTotal = 1                     // 한 버스당 안내 횟수
+    private var gapMs = 60_000L                     // 반복 간격
+    private val counts = mutableMapOf<String, Int>()
+    private val lastAt = mutableMapOf<String, Long>()
     private var startedAt = 0L
 
     private val pollRunnable = object : Runnable {
@@ -85,11 +89,17 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
             .map { it.replace(Regex("\\s+"), "") }
             .filter { it.isNotEmpty() }
             .toSet()
-        announced.clear()
+        vibrate = intent.getBooleanExtra("vibrate", false)
+        repeatTotal = intent.getIntExtra("repeat", 1).coerceIn(1, 20)
+        gapMs = intent.getIntExtra("gapSec", 60).coerceIn(10, 600) * 1000L
+        counts.clear()
+        lastAt.clear()
         startedAt = SystemClock.elapsedRealtime()
 
         createChannel()
-        val noti = buildNotification("$nodeNm · $buses · ${minutes}분 전 안내")
+        val noti = buildNotification(
+            "$nodeNm · $buses · ${minutes}분 전 안내" + (if (repeatTotal > 1) " · ${repeatTotal}회 반복" else "") + (if (vibrate) " · 진동" else "")
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTI_ID, noti, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
@@ -173,25 +183,34 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    /** 메인 스레드: 안내 조건 확인 */
+    /** 메인 스레드: 안내 조건 확인 (반복 안내 포함) */
     private fun evaluate(items: List<Pair<String, Int>>) {
         val limit = minutes * 60
+        val now = SystemClock.elapsedRealtime()
         val seen = mutableSetOf<String>()
         for ((no, sec) in items) {
             val n = no.replace(Regex("\\s+"), "")
             if (!wanted.contains(n)) continue
             seen.add(n)
             if (sec <= limit) {
-                if (announced.add(n)) {
+                val cnt = counts[n] ?: 0
+                val last = lastAt[n] ?: 0L
+                // 조회 주기(30초)에 약간의 오차가 있어 5초 여유를 둠
+                if (cnt < repeatTotal && (cnt == 0 || now - last >= gapMs - 5_000L)) {
+                    counts[n] = cnt + 1
+                    lastAt[n] = now
                     val m = Math.round(sec / 60.0).toInt()
                     val whenText = if (m <= 1) "곧 도착합니다" else "약 ${m}분 후 도착합니다"
+                    if (vibrate) Buzz.vibrate(this)
                     speak("${busLabel(no)}가 $nodeNm 정류장에 $whenText.")
                 }
             } else if (sec > limit + 120) {
-                announced.remove(n)   // 다음 버스를 위해 초기화
+                counts.remove(n)      // 다음 버스를 위해 초기화
+                lastAt.remove(n)
             }
         }
-        announced.retainAll(seen)      // 목록에서 사라진(지나간) 버스는 초기화
+        counts.keys.retainAll(seen)   // 목록에서 사라진(지나간) 버스는 초기화
+        lastAt.keys.retainAll(seen)
     }
 
     private fun busLabel(no: String): String =

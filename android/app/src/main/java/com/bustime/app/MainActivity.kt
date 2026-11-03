@@ -88,6 +88,30 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.startForegroundService(this@MainActivity, i)
         }
 
+        /** 진동/반복 안내 설정을 함께 받는 새 버전 */
+        @JavascriptInterface
+        fun startWatch2(
+            cityCode: String, nodeId: String, nodeNm: String, buses: String, minutes: Int,
+            vibrate: Boolean, repeat: Int, gapSec: Int
+        ) {
+            val i = Intent(this@MainActivity, WatchService::class.java)
+                .setAction(WatchService.ACTION_START)
+                .putExtra("cityCode", cityCode)
+                .putExtra("nodeId", nodeId)
+                .putExtra("nodeNm", nodeNm)
+                .putExtra("buses", buses)
+                .putExtra("minutes", minutes)
+                .putExtra("vibrate", vibrate)
+                .putExtra("repeat", repeat)
+                .putExtra("gapSec", gapSec)
+            ContextCompat.startForegroundService(this@MainActivity, i)
+        }
+
+        @JavascriptInterface
+        fun vibrateTest() {
+            Buzz.vibrate(this@MainActivity)
+        }
+
         @JavascriptInterface
         fun stopWatch() {
             stopService(Intent(this@MainActivity, WatchService::class.java))

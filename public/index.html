@@ -70,6 +70,21 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       <option>1</option><option>2</option><option>3</option><option selected>5</option>
       <option>7</option><option>10</option><option>15</option>
     </select>
+    <label>📳 진동</label>
+    <div class="row">
+      <button id="vibToggle">꺼짐</button>
+      <button class="ghost" id="vibTest">진동 테스트</button>
+    </div>
+    <label for="alertRep">🔁 반복 안내 (버스가 올 때까지 다시 알려 줌)</label>
+    <div class="row">
+      <select id="alertRep">
+        <option value="1">한 번만</option><option value="2">2번</option><option value="3">3번</option>
+        <option value="5">5번</option><option value="10">10번</option>
+      </select>
+      <select id="alertGap">
+        <option value="30">30초마다</option><option value="60">1분마다</option><option value="120">2분마다</option>
+      </select>
+    </div>
     <div class="sub" id="alertNote" style="margin-top:.6rem">
       ※ 음성 안내를 받으려면 해당 정류장의 도착정보 화면을 켜 두어야 합니다.
       화면이 꺼지거나 다른 앱으로 넘어가면 안내가 나오지 않을 수 있습니다.
@@ -177,17 +192,19 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } ca
 const toArr = v => v == null || v === "" ? [] : Array.isArray(v) ? v : [v];
 
 let current = null, timer = null, watchStart = 0, wakeLock = null;
-const announced = {};          // 이미 안내한 버스 기록
+const announced = {};          // 버스별 안내 기록 {횟수, 마지막 시각}
 
 /* ================= 안내 설정(CFG): 기기 안에만 저장 또는 계정(클라우드) ================= */
 let acctOn = ls("acctOn", false);          // 이메일 계정으로 로그인해 설정을 클라우드와 동기화 중인지
-let CFG = { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)), stop: null };
+const localCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)),
+  vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: null });
+let CFG = localCfg();
 if (acctOn) { const c = ls("acctCfg", null); if (c) CFG = c; }   // 인터넷이 없어도 마지막 설정 사용
 let FB = null, authUser = null, unsubA = null, lastSig = "";
 
 const listen = () => ls("listenHere", true) !== false;   // 이 기기에서 음성 안내를 낼지
 const alertCfg = () => CFG;
-const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid]);
+const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid]);
 const sameStop = (a, b) => a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode);
 const activeStop = () => (acctOn && CFG.stop) ? CFG.stop : current;
 
@@ -197,6 +214,9 @@ function saveAlert(p) {
     if ("on" in p) lsSet("busAlertOn", p.on);
     if ("buses" in p) lsSet("busAlertBuses", p.buses);
     if ("min" in p) lsSet("busAlertMin", p.min);
+    if ("vib" in p) lsSet("busAlertVib", p.vib);
+    if ("rep" in p) lsSet("busAlertRep", p.rep);
+    if ("gap" in p) lsSet("busAlertGap", p.gap);
   } else {
     cloudWrite(p);
     lsSet("acctCfg", CFG);
@@ -217,7 +237,8 @@ async function cloudWrite(p) {
 }
 
 function applyRemote(d) {
-  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, stop: d.stop || null };
+  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, vib: !!d.vib,
+          rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
   renderAlertUi();
   renderFam();
@@ -329,23 +350,30 @@ function speak(text) {
 const norm = s => String(s).replace(/\s+/g, "");
 function busLabel(no) { return /^\d+(-\d+)?$/.test(String(no).trim()) ? `${no}번 버스` : `${no} 버스`; }
 
+function buzz() {
+  try { if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 500]); } catch {}
+}
+
 function checkAlerts(items) {
   const c = alertCfg();
   if (!c.on || NATIVE || (acctOn && !listen())) return;   // 앱에서는 백그라운드 서비스가 음성 안내를 담당
   const wanted = String(c.buses).split(",").map(norm).filter(Boolean);
   if (!wanted.length) return;
-  const limit = Number(c.min) * 60;
-  const seen = new Set();
+  const limit = Number(c.min) * 60, total = Math.max(1, Number(c.rep) || 1), gapMs = (Number(c.gap) || 60) * 1000;
+  const prefix = current.cityCode + ":" + current.nodeid + ":";
+  const seen = new Set(), now = Date.now();
   for (const b of items) {
     if (!wanted.includes(norm(b.routeno))) continue;
-    const key = current.cityCode + ":" + current.nodeid + ":" + norm(b.routeno);
+    const key = prefix + norm(b.routeno);
     seen.add(key);
     const sec = Number(b.arrtime ?? 1e9);
     if (sec <= limit) {
-      if (!announced[key]) {
-        announced[key] = true;
+      const a = announced[key] || { n: 0, t: 0 };
+      if (a.n < total && (a.n === 0 || now - a.t >= gapMs - 5000)) {
+        announced[key] = { n: a.n + 1, t: now };
         const m = Math.round(sec / 60);
         const when = m <= 1 ? "곧 도착합니다" : `약 ${m}분 후 도착합니다`;
+        if (c.vib) buzz();
         speak(`${busLabel(b.routeno)}가 ${current.nodenm} 정류장에 ${when}.`);
       }
     } else if (sec > limit + 120) {
@@ -353,7 +381,7 @@ function checkAlerts(items) {
     }
   }
   // 목록에서 사라진 버스(이미 지나감)는 기록 초기화
-  for (const k of Object.keys(announced)) if (k.startsWith(current.cityCode + ":" + current.nodeid + ":") && !seen.has(k)) delete announced[k];
+  for (const k of Object.keys(announced)) if (k.startsWith(prefix) && !seen.has(k)) delete announced[k];
 }
 
 async function keepAwake() {
@@ -375,7 +403,11 @@ function syncNative() {
   const buses = String(c.buses).split(",").map(s => s.trim()).filter(Boolean).join(",");
   try {
     if (c.on && buses && stop) {
-      AndroidBridge.startWatch(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(c.min));
+      if (typeof AndroidBridge.startWatch2 === "function")
+        AndroidBridge.startWatch2(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(c.min),
+          !!c.vib, Number(c.rep) || 1, Number(c.gap) || 60);
+      else   // 예전 앱(진동/반복 미지원)
+        AndroidBridge.startWatch(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(c.min));
     } else {
       AndroidBridge.stopWatch();
     }
@@ -387,6 +419,10 @@ function renderAlertUi() {
   $("alertToggle").classList.toggle("on", !!CFG.on);
   $("alertBus").value = CFG.buses || "";
   $("alertMin").value = String(CFG.min);
+  $("vibToggle").textContent = CFG.vib ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
+  $("vibToggle").classList.toggle("on", !!CFG.vib);
+  $("alertRep").value = String(CFG.rep || 1);
+  $("alertGap").value = String(CFG.gap || 60);
 }
 
 /* ================= 도착정보 ================= */
@@ -461,7 +497,7 @@ async function onAuth(user) {
       await startAcct(authUser);
     } else if (acctOn) {
       stopSubs(); acctOn = false; lsSet("acctOn", false);      // 로그아웃: 이 기기 설정으로 되돌림
-      CFG = { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)), stop: null };
+      CFG = localCfg();
       renderAlertUi(); syncNative();
     }
   } catch (e) { famMsg(errText(e), true); }
@@ -474,7 +510,8 @@ async function startAcct(user) {
   const ref = FB.doc(FB.db, "accounts", user.uid);
   const snap = await FB.getDoc(ref);
   if (!snap.exists()) {           // 처음 로그인: 이 기기의 현재 설정을 계정에 올림
-    await FB.setDoc(ref, { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on, updatedAt: FB.serverTimestamp() });
+    await FB.setDoc(ref, { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
+      vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, updatedAt: FB.serverTimestamp() });
   }
   unsubA = FB.onSnapshot(ref, s => { if (s.exists()) applyRemote(s.data()); },
     e => famMsg("설정을 불러올 수 없습니다. " + errText(e), true));
@@ -530,6 +567,19 @@ $("alertToggle").onclick = () => {
 };
 $("alertBus").addEventListener("change", e => saveAlert({ buses: e.target.value }));
 $("alertMin").onchange = e => saveAlert({ min: Number(e.target.value) });
+$("alertRep").onchange = e => saveAlert({ rep: Number(e.target.value) });
+$("alertGap").onchange = e => saveAlert({ gap: Number(e.target.value) });
+$("vibToggle").onclick = () => {
+  const vib = !CFG.vib;
+  saveAlert({ vib });
+  if (vib) vibTest();
+};
+function vibTest() {
+  if (NATIVE && typeof AndroidBridge.vibrateTest === "function") AndroidBridge.vibrateTest();
+  else if (navigator.vibrate) buzz();
+  else alert("이 기기에서는 진동을 지원하지 않습니다.");
+}
+$("vibTest").onclick = vibTest;
 $("voiceTest").onclick = () => {
   if (NATIVE) { AndroidBridge.speakTest(); return; }
   if (!speak("음성 안내 테스트입니다. 이 소리가 들리면 정상입니다.")) alert("이 기기에서는 음성 안내를 지원하지 않습니다.");
@@ -555,7 +605,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v6 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v7 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
