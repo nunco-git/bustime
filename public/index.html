@@ -86,7 +86,6 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       <button class="ghost" data-scale="1">작게</button>
       <button class="ghost" data-scale="1.25">보통</button>
       <button class="ghost" data-scale="1.5">크게</button>
-      <button class="ghost" data-scale="1.75">아주 크게</button>
     </div>
 
     <details class="grp" open>
@@ -428,6 +427,7 @@ async function call(op, params = {}) {
 }
 
 function setScale(s, fromRemote) {
+  if (Number(s) > 1.5) s = 1.5;    // '아주 크게'는 없앴으므로 예전에 저장된 큰 값도 '크게'로
   document.documentElement.style.setProperty("--scale", s);
   lsSet("busScale", Number(s));
   document.querySelectorAll("#fontBtns button").forEach(b => b.classList.toggle("sel", Number(b.dataset.scale) === Number(s)));
@@ -1165,7 +1165,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v28 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v29 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
