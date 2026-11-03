@@ -8,6 +8,7 @@
   :root { --scale:1.5; --bg:#f3f4f6; --card:#fff; --ink:#111827; --sub:#4b5563; --main:#1d4ed8; --line:#d1d5db; }
   html { font-size: calc(16px * var(--scale)); }
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
   body { margin:0; font-family:-apple-system,"Malgun Gothic",sans-serif; background:var(--bg); color:var(--ink); line-height:1.4; }
   .wrap { max-width:760px; margin:0 auto; padding:12px; }
   .top { display:flex; justify-content:space-between; align-items:center; margin:4px 0 12px; }
@@ -15,7 +16,8 @@
   .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
   .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   select, input, button { font-size:1rem; padding:.55rem .7rem; border:2px solid var(--line); border-radius:10px; font-family:inherit; }
-  select, input { flex:1; min-width:0; background:#fff; color:var(--ink); }
+  select, input { flex:1; min-width:0; width:100%; background:#fff; color:var(--ink); }
+  .row select, .row input { width:auto; }
   button { background:var(--main); color:#fff; border:0; cursor:pointer; }
   button.ghost { background:#e0e7ff; color:var(--main); }
   button.on { background:#16a34a; color:#fff; }
@@ -31,8 +33,14 @@
   .msg { color:var(--sub); text-align:center; padding:.8rem; }
   .err { color:#b91c1c; }
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
+  .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
 </style>
+
+<script>
+// Firebase(가족 연결) 준비 신호: 아래 module 스크립트가 결과를 넘겨줍니다.
+window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fbRej = rej; });
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -67,6 +75,55 @@
       화면이 꺼지거나 다른 앱으로 넘어가면 안내가 나오지 않을 수 있습니다.
       처음 한 번 "음성 테스트"를 눌러 소리가 나는지 확인하세요.
     </div>
+
+    <label>👨‍👩‍👧 가족 연결</label>
+    <div id="famNone">
+      <div class="row">
+        <button id="famElderBtn">이 폰은 어르신 폰입니다</button>
+        <button class="ghost" id="famChildBtn">자녀 로그인 / 가입</button>
+      </div>
+      <div class="sub" style="margin-top:.4rem">
+        어르신 폰에서 첫 번째 버튼을 누르면 <b>연결 코드</b>가 만들어집니다.
+        자녀가 로그인해서 그 코드를 입력하면, 버스 번호와 안내 시간을 대신 설정할 수 있습니다.
+      </div>
+    </div>
+
+    <div id="famElder" hidden>
+      <div class="sub">이 폰의 연결 코드</div>
+      <div class="code" id="famMyCode">만드는 중…</div>
+      <div class="sub" style="margin:.4rem 0">
+        자녀에게 이 코드를 알려 주세요. 자녀가 바꾼 버스 번호와 안내 시간이 이 폰에 바로 적용됩니다.
+      </div>
+      <div class="sub" id="famElderStop"></div>
+      <button class="ghost" id="famOff" style="margin-top:.4rem">가족 연결 끄기</button>
+    </div>
+
+    <div id="famLogin" hidden>
+      <input id="famEmail" type="email" placeholder="이메일" autocomplete="username">
+      <input id="famPw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" style="margin-top:6px">
+      <div class="row" style="margin-top:8px">
+        <button id="famSignIn">로그인</button>
+        <button class="ghost" id="famSignUp">가입</button>
+        <button class="ghost" id="famCancel">취소</button>
+      </div>
+    </div>
+
+    <div id="famChild" hidden>
+      <div class="sub" id="famWho"></div>
+      <select id="famElderSel" style="margin-top:6px"></select>
+      <div class="row" style="margin-top:6px">
+        <input id="famCode" placeholder="어르신 연결 코드 8자리" autocapitalize="characters">
+        <input id="famNick" placeholder="별명 (예: 어머니)">
+        <button id="famAdd">어르신 추가</button>
+      </div>
+      <div class="sub" id="famStop" style="margin-top:6px"></div>
+      <div class="sub" style="margin-top:4px">
+        ※ 위의 '버스 번호 / 몇 분 전 / 음성 안내'를 바꾸면 선택한 어르신 폰에 바로 적용됩니다.
+        안내할 정류장은 아래에서 검색한 뒤 '어르신 정류장으로 설정'을 누르세요.
+      </div>
+      <button class="ghost" id="famOut" style="margin-top:6px">로그아웃</button>
+    </div>
+    <div class="sub" id="famMsg" style="margin-top:.4rem"></div>
   </div>
 
   <div class="card">
@@ -99,6 +156,35 @@
   </div>
 </div>
 
+<script type="module">
+// 가족 연결(로그인/동기화)에 쓰는 Firebase. 불러오지 못해도 기본 기능은 그대로 동작합니다.
+try {
+  const V = "10.14.1";
+  const [appM, authM, fsM] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`),
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`),
+  ]);
+  const app = appM.initializeApp({
+    apiKey: "AIzaSyC8UZsQaZVtml-K3J8WyDuL4mjgnYAsQTo",
+    authDomain: "bustime-c4cfd.firebaseapp.com",
+    projectId: "bustime-c4cfd",
+    appId: "1:179320810477:web:ad4b1241a9ab2a1ec055e4",
+  });
+  window.__fbRes({
+    auth: authM.getAuth(app),
+    db: fsM.initializeFirestore(app, { experimentalAutoDetectLongPolling: true }),
+    onAuthStateChanged: authM.onAuthStateChanged,
+    signInAnonymously: authM.signInAnonymously,
+    createUser: authM.createUserWithEmailAndPassword,
+    signIn: authM.signInWithEmailAndPassword,
+    signOut: authM.signOut,
+    doc: fsM.doc, collection: fsM.collection, getDoc: fsM.getDoc, setDoc: fsM.setDoc,
+    onSnapshot: fsM.onSnapshot, serverTimestamp: fsM.serverTimestamp,
+  });
+} catch (e) { window.__fbRej(e); }
+</script>
+
 <script>
 // Firebase Hosting의 /api 가 bus 함수로 연결됩니다 (firebase.json rewrites)
 const API = "/api";
@@ -108,16 +194,90 @@ const MAX_WATCH_MIN = 60;      // 호출 횟수 절약: 한 번 켜면 60분까�
 
 const $ = id => document.getElementById(id);
 const NATIVE = typeof window.AndroidBridge !== "undefined";   // 안드로이드 앱 안에서 열린 경우
+const ls = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const toArr = v => v == null || v === "" ? [] : Array.isArray(v) ? v : [v];
+
 let current = null, timer = null, watchStart = 0, wakeLock = null;
 const announced = {};          // 이미 안내한 버스 기록
 
-const toArr = v => v == null || v === "" ? [] : Array.isArray(v) ? v : [v];
-const ls = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
-const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+/* ================= 안내 설정(CFG): 기기 안에만 저장 또는 가족 연결(클라우드) ================= */
+let famRole = ls("famRole", null);        // null(혼자 사용) | "elder"(어르신 폰) | "child"(자녀)
+let CFG = { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)), stop: null };
+if (famRole === "elder") { const c = ls("famCfg", null); if (c) CFG = c; }   // 인터넷이 없어도 마지막 설정 사용
+let FB = null, authUser = null, famTarget = null, elderCode = "", links = [];
+let unsubA = null, unsubLinks = null, linkUid = null, lastSig = "";
 
+const alertCfg = () => CFG;
+const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid]);
+const sameStop = (a, b) => a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode);
+const activeStop = () => (famRole === "elder" && CFG.stop) ? CFG.stop : current;
+
+function saveAlert(p) {
+  if (famRole === "child" && !famTarget) { famMsg("먼저 어르신 연결 코드를 입력해 추가하세요.", true); renderAlertUi(); return; }
+  Object.assign(CFG, p);
+  if (!famRole) {
+    if ("on" in p) lsSet("busAlertOn", p.on);
+    if ("buses" in p) lsSet("busAlertBuses", p.buses);
+    if ("min" in p) lsSet("busAlertMin", p.min);
+  } else {
+    cloudWrite(p);
+    if (famRole === "elder") lsSet("famCfg", CFG);
+  }
+  lastSig = sig();
+  renderAlertUi();
+  renderFam();
+  syncNative();
+}
+
+async function cloudWrite(p) {
+  if (!FB || !famTarget || !FB.auth.currentUser) return;
+  try {
+    await FB.setDoc(FB.doc(FB.db, "elders", famTarget),
+      { ...p, updatedAt: FB.serverTimestamp(), updatedBy: FB.auth.currentUser.uid }, { merge: true });
+    famMsg("");
+  } catch (e) { famMsg(errText(e), true); }
+}
+
+function applyRemote(d) {
+  CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, stop: d.stop || null };
+  if (famRole === "elder") { elderCode = d.code || elderCode; lsSet("famCfg", CFG); }
+  renderAlertUi();
+  renderFam();
+  const s = sig();
+  if (s === lastSig) return;          // 내가 방금 바꾼 값이 되돌아온 경우는 무시
+  lastSig = s;
+  if (famRole === "elder") {
+    if (CFG.stop && !sameStop(current, CFG.stop)) showArrivals(CFG.stop);   // 지정 정류장을 바로 보여 주고 안내 시작
+    else syncNative();
+  }
+}
+
+function errText(e) {
+  const c = (e && e.code) || "";
+  const map = {
+    "auth/invalid-credential": "이메일 또는 비밀번호가 맞지 않습니다.",
+    "auth/wrong-password": "이메일 또는 비밀번호가 맞지 않습니다.",
+    "auth/user-not-found": "가입되지 않은 이메일입니다. '가입'을 눌러 주세요.",
+    "auth/email-already-in-use": "이미 가입된 이메일입니다. '로그인'을 눌러 주세요.",
+    "auth/weak-password": "비밀번호는 6자 이상이어야 합니다.",
+    "auth/invalid-email": "이메일 형식이 맞지 않습니다.",
+    "auth/too-many-requests": "시도가 너무 많습니다. 잠시 뒤에 다시 해 주세요.",
+    "auth/network-request-failed": "인터넷 연결을 확인해 주세요.",
+    "auth/operation-not-allowed": "Firebase 콘솔에서 이 로그인 방식을 켜야 합니다.",
+    "auth/admin-restricted-operation": "Firebase 콘솔에서 '익명' 로그인을 켜야 합니다.",
+    "permission-denied": "권한이 없습니다. (Firestore 규칙 배포가 필요할 수 있습니다)",
+    "failed-precondition": "Firestore 데이터베이스를 먼저 만들어야 합니다.",
+  };
+  return map[c] || (c ? c : (e && e.message) || "오류가 발생했습니다.");
+}
+const famMsg = (t, err) => { const m = $("famMsg"); m.textContent = t || ""; m.className = "sub" + (err ? " err" : ""); };
+
+/* ================= 호출/즐겨찾기/정류장 ================= */
 async function call(op, params = {}) {
   const u = new URL(API, location.origin);
   u.searchParams.set("op", op);
+  u.searchParams.set("t", Date.now()); // 캐시된 이전 결과가 나오지 않도록
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
   const r = await fetch(u);
   const j = await r.json();
@@ -126,14 +286,12 @@ async function call(op, params = {}) {
   return toArr(j.response?.body?.items?.item);
 }
 
-/* ---------- 글자 크기 ---------- */
 function setScale(s) {
   document.documentElement.style.setProperty("--scale", s);
   lsSet("busScale", s);
   document.querySelectorAll("#fontBtns button").forEach(b => b.classList.toggle("sel", Number(b.dataset.scale) === Number(s)));
 }
 
-/* ---------- 즐겨찾기 ---------- */
 const favs = () => ls("busFavs", []);
 const saveFavs = f => lsSet("busFavs", f);
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
@@ -149,13 +307,14 @@ function renderFavs() {
 function renderStops() {
   $("stops").innerHTML = window._stops.map((s, i) => {
     const on = isFav(s);
+    const setBtn = (famRole === "child" && famTarget)
+      ? `<button data-setstop="${i}">어르신 정류장으로 설정</button>` : "";
     return `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
-      <div class="btns"><button data-st="${i}">도착정보</button>
+      <div class="btns">${setBtn}<button data-st="${i}">도착정보</button>
       <button class="ghost" data-add="${i}">${on ? "해제" : "추가"}</button></div></div>`;
   }).join("");
 }
 
-/* ---------- 도시/정류장 ---------- */
 async function loadCities() {
   try {
     const cities = await call("cities");
@@ -181,9 +340,7 @@ async function searchStops() {
   } catch (e) { $("stops").innerHTML = `<div class="msg err">${e.message}</div>`; }
 }
 
-/* ---------- 음성 안내 ---------- */
-const alertCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: ls("busAlertMin", 5) });
-
+/* ================= 음성 안내 ================= */
 function speak(text) {
   if (!("speechSynthesis" in window)) return false;
   speechSynthesis.cancel();
@@ -201,7 +358,7 @@ function busLabel(no) { return /^\d+(-\d+)?$/.test(String(no).trim()) ? `${no}�
 
 function checkAlerts(items) {
   const c = alertCfg();
-  if (!c.on || NATIVE) return;   // 앱에서는 백그라운드 서비스가 음성 안내를 담당
+  if (!c.on || NATIVE || famRole === "child") return;   // 앱에서는 백그라운드 서비스가 음성 안내를 담당
   const wanted = String(c.buses).split(",").map(norm).filter(Boolean);
   if (!wanted.length) return;
   const limit = Number(c.min) * 60;
@@ -236,14 +393,15 @@ async function keepAwake() {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && current) keepAwake(); });
 
-// 안드로이드 앱: 지금 보고 있는 정류장 + 설정을 백그라운드 서비스에 전달
+// 안드로이드 앱: 안내할 정류장 + 설정을 백그라운드 서비스에 전달 (자녀 폰에서는 하지 않음)
 function syncNative() {
-  if (!NATIVE) return;
+  if (!NATIVE || famRole === "child") return;
   const c = alertCfg();
+  const stop = activeStop();
   const buses = String(c.buses).split(",").map(s => s.trim()).filter(Boolean).join(",");
   try {
-    if (c.on && buses && current) {
-      AndroidBridge.startWatch(String(current.cityCode), String(current.nodeid), String(current.nodenm), buses, Number(c.min));
+    if (c.on && buses && stop) {
+      AndroidBridge.startWatch(String(stop.cityCode), String(stop.nodeid), String(stop.nodenm), buses, Number(c.min));
     } else {
       AndroidBridge.stopWatch();
     }
@@ -251,14 +409,13 @@ function syncNative() {
 }
 
 function renderAlertUi() {
-  const c = alertCfg();
-  $("alertToggle").textContent = c.on ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
-  $("alertToggle").classList.toggle("on", c.on);
-  $("alertBus").value = c.buses;
-  $("alertMin").value = String(c.min);
+  $("alertToggle").textContent = CFG.on ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
+  $("alertToggle").classList.toggle("on", !!CFG.on);
+  $("alertBus").value = CFG.buses || "";
+  $("alertMin").value = String(CFG.min);
 }
 
-/* ---------- 도착정보 ---------- */
+/* ================= 도착정보 ================= */
 async function showArrivals(stop) {
   current = stop;
   watchStart = Date.now();
@@ -301,13 +458,162 @@ async function loadArrivals() {
   } catch (e) { $("arrivals").innerHTML = `<div class="msg err">${e.message}</div>`; }
 }
 
-/* ---------- 이벤트 ---------- */
+/* ================= 가족 연결(로그인) ================= */
+const genCode = () => {
+  const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // 헷갈리는 글자(I, O, 0, 1) 제외, 32글자
+  let s = "";
+  for (const b of crypto.getRandomValues(new Uint8Array(8))) s += A[b % A.length];
+  return s;
+};
+
+function renderFam() {
+  const childIn = famRole === "child" && authUser && !authUser.isAnonymous;
+  $("famNone").hidden = !!famRole;
+  $("famElder").hidden = famRole !== "elder";
+  $("famLogin").hidden = !(famRole === "child" && !childIn);
+  $("famChild").hidden = !childIn;
+
+  $("famMyCode").textContent = elderCode ? elderCode.slice(0, 4) + " " + elderCode.slice(4) : "만드는 중…";
+  $("famElderStop").textContent = CFG.stop
+    ? `안내 정류장: ${CFG.stop.nodenm} (${CFG.stop.cityName})` : "아직 정해진 안내 정류장이 없습니다. 자녀가 정해 주면 앱을 열 때 바로 보여 드립니다.";
+
+  if (childIn) {
+    $("famWho").textContent = "로그인: " + authUser.email;
+    $("famElderSel").innerHTML = links.length
+      ? links.map(l => `<option value="${l.elderUid}" ${l.elderUid === famTarget ? "selected" : ""}>${l.nickname || "어르신"}</option>`).join("")
+      : `<option value="">연결된 어르신이 없습니다</option>`;
+    $("famStop").textContent = !famTarget ? "" :
+      (CFG.stop ? `안내 정류장: ${CFG.stop.nodenm} (${CFG.stop.cityName})` : "안내 정류장이 아직 없습니다. 아래에서 검색해 설정하세요.");
+  }
+  if (window._stops) renderStops();
+}
+
+function stopSubs() {
+  if (unsubA) { unsubA(); unsubA = null; }
+  if (unsubLinks) { unsubLinks(); unsubLinks = null; }
+  famTarget = null; linkUid = null; links = []; lastSig = "";
+}
+
+async function onAuth(user) {
+  authUser = user;
+  try {
+    if (famRole === "elder") {
+      if (!user || !user.isAnonymous) {
+        if (user) await FB.signOut(FB.auth); else await FB.signInAnonymously(FB.auth);
+        return;                      // 로그인 상태가 바뀌면 이 함수가 다시 불립니다
+      }
+      await startElder(user.uid);
+    } else if (famRole === "child") {
+      if (user && !user.isAnonymous) await startChild(user); else stopSubs();
+    }
+  } catch (e) { famMsg(errText(e), true); }
+  renderFam();
+}
+
+async function startElder(uid) {
+  if (famTarget === uid && unsubA) return;
+  const ref = FB.doc(FB.db, "elders", uid);
+  const snap = await FB.getDoc(ref);
+  if (!snap.exists()) {
+    let code = null, lastErr = null;
+    for (let i = 0; i < 8 && !code; i++) {
+      const c = genCode();
+      try { await FB.setDoc(FB.doc(FB.db, "codes", c), { elderUid: uid }); code = c; } catch (e) { lastErr = e; }
+    }
+    if (!code) throw lastErr;
+    await FB.setDoc(ref, {
+      code, buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
+      nickname: "", updatedAt: FB.serverTimestamp(), updatedBy: uid,
+    });
+  }
+  if (unsubA) unsubA();
+  famTarget = uid;
+  unsubA = FB.onSnapshot(ref, s => { if (s.exists()) applyRemote(s.data()); },
+    e => famMsg(errText(e), true));
+}
+
+async function startChild(user) {
+  if (unsubLinks && linkUid === user.uid) return;
+  stopSubs();
+  linkUid = user.uid;
+  unsubLinks = FB.onSnapshot(FB.collection(FB.db, "users", user.uid, "links"), snap => {
+    links = snap.docs.map(d => ({ elderUid: d.id, ...d.data() }));
+    const want = ls("famSel", null);
+    const pick = links.find(l => l.elderUid === want) || links[0];
+    selectElder(pick ? pick.elderUid : null);
+  }, e => famMsg(errText(e), true));
+}
+
+function selectElder(uid) {
+  if (uid === famTarget && (unsubA || !uid)) { renderFam(); return; }
+  if (unsubA) { unsubA(); unsubA = null; }
+  famTarget = uid; lastSig = "";
+  if (uid) lsSet("famSel", uid);
+  if (!uid) { CFG = { on: false, buses: "", min: 5, stop: null }; renderAlertUi(); renderFam(); return; }
+  unsubA = FB.onSnapshot(FB.doc(FB.db, "elders", uid), s => { if (s.exists()) applyRemote(s.data()); },
+    e => famMsg("어르신 설정을 불러올 수 없습니다. " + errText(e), true));
+  renderFam();
+}
+
+function setRole(role) {
+  famRole = role; lsSet("famRole", role); famMsg("");
+  renderFam();
+  if (!FB) { famMsg("가족 연결 기능을 준비하는 중입니다. 잠시 뒤에 다시 시도하세요.", true); return; }
+  onAuth(FB.auth.currentUser);
+}
+
+async function leaveFam() {
+  stopSubs();
+  try { if (FB) await FB.signOut(FB.auth); } catch {}
+  famRole = null; lsSet("famRole", null);
+  CFG = { on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)), stop: null };
+  elderCode = "";
+  renderAlertUi(); renderFam(); syncNative(); famMsg("");
+}
+
+async function doAuth(kind) {
+  const email = $("famEmail").value.trim(), pw = $("famPw").value;
+  if (!email || pw.length < 6) { famMsg("이메일과 6자 이상 비밀번호를 입력하세요.", true); return; }
+  if (!FB) { famMsg("가족 연결 기능을 준비하는 중입니다. 잠시 뒤에 다시 시도하세요.", true); return; }
+  try {
+    famMsg("처리 중…");
+    await (kind === "up" ? FB.createUser(FB.auth, email, pw) : FB.signIn(FB.auth, email, pw));
+    famMsg("");
+    $("famPw").value = "";
+  } catch (e) { famMsg(errText(e), true); }
+}
+
+async function addElder() {
+  const code = $("famCode").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const nick = $("famNick").value.trim() || "어르신";
+  if (code.length !== 8) { famMsg("연결 코드는 8자리입니다.", true); return; }
+  try {
+    famMsg("연결 중…");
+    const u = FB.auth.currentUser;
+    const c = await FB.getDoc(FB.doc(FB.db, "codes", code));
+    if (!c.exists()) { famMsg("연결 코드가 맞지 않습니다.", true); return; }
+    const elderUid = c.data().elderUid;
+    const mref = FB.doc(FB.db, "elders", elderUid, "members", u.uid);
+    if (!(await FB.getDoc(mref)).exists()) await FB.setDoc(mref, { code, createdAt: FB.serverTimestamp() });
+    await FB.setDoc(FB.doc(FB.db, "users", u.uid, "links", elderUid), { code, nickname: nick, createdAt: FB.serverTimestamp() });
+    lsSet("famSel", elderUid);
+    $("famCode").value = ""; $("famNick").value = "";
+    famMsg("연결되었습니다.");
+  } catch (e) { famMsg(errText(e), true); }
+}
+
+/* ================= 이벤트 ================= */
 document.addEventListener("click", e => {
   const b = e.target.closest("button");
   if (!b) return;
   const d = b.dataset;
   if (d.scale) setScale(d.scale);
   if (d.st != null) showArrivals(window._stops[d.st]);
+  if (d.setstop != null) {
+    const s = window._stops[d.setstop];
+    saveAlert({ stop: { cityCode: String(s.cityCode), nodeid: String(s.nodeid), nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? ""), cityName: String(s.cityName) } });
+    famMsg("안내 정류장을 '" + s.nodenm + "'(으)로 설정했습니다.");
+  }
   if (d.add != null) {
     const s = window._stops[d.add];
     const f = favs().filter(x => !(x.nodeid === s.nodeid && x.cityCode === s.cityCode));
@@ -319,42 +625,61 @@ document.addEventListener("click", e => {
 });
 
 $("gear").onclick = () => { const s = $("settings"); s.style.display = s.style.display === "block" ? "none" : "block"; };
+
 $("alertToggle").onclick = () => {
-  const on = !alertCfg().on;
-  lsSet("busAlertOn", on);
-  renderAlertUi();
-  if (on) {
+  const on = !CFG.on;
+  saveAlert({ on, buses: $("alertBus").value });
+  if (on && !(famRole === "child")) {
     if (NATIVE) AndroidBridge.speakTest();
     else { speak("음성 안내를 켰습니다."); keepAwake(); }
   }
-  syncNative();
 };
-$("alertBus").addEventListener("input", e => lsSet("busAlertBuses", e.target.value));
-$("alertBus").addEventListener("change", syncNative);
-$("alertMin").onchange = e => { lsSet("busAlertMin", Number(e.target.value)); syncNative(); };
+$("alertBus").addEventListener("change", e => saveAlert({ buses: e.target.value }));
+$("alertMin").onchange = e => saveAlert({ min: Number(e.target.value) });
 $("voiceTest").onclick = () => {
   if (NATIVE) { AndroidBridge.speakTest(); return; }
   if (!speak("음성 안내 테스트입니다. 이 소리가 들리면 정상입니다.")) alert("이 기기에서는 음성 안내를 지원하지 않습니다.");
 };
+
+$("famElderBtn").onclick = () => setRole("elder");
+$("famChildBtn").onclick = () => setRole("child");
+$("famOff").onclick = leaveFam;
+$("famCancel").onclick = leaveFam;
+$("famOut").onclick = leaveFam;
+$("famSignIn").onclick = () => doAuth("in");
+$("famSignUp").onclick = () => doAuth("up");
+$("famAdd").onclick = addElder;
+$("famElderSel").onchange = e => selectElder(e.target.value || null);
+
 $("search").onclick = searchStops;
 $("q").addEventListener("keydown", e => e.key === "Enter" && searchStops());
 $("refresh").onclick = () => { if (current) showArrivals(current); };
 
+/* ================= 시작 ================= */
 if ("speechSynthesis" in window) speechSynthesis.getVoices();
 setScale(ls("busScale", 1.5));
 renderAlertUi();
 if (NATIVE) $("alertNote").textContent =
-  "※ 안내는 지금 보고 있는 정류장 기준입니다. 정류장의 도착정보를 먼저 열고 음성 안내를 켜세요. " +
+  "※ 안내는 지금 보고 있는(또는 지정된) 정류장 기준입니다. 정류장의 도착정보를 먼저 열고 음성 안내를 켜세요. " +
   "그 뒤에는 화면을 끄거나 다른 앱을 써도 안내가 나옵니다. (최대 60분, 상단 알림의 '안내 종료'로 끌 수 있습니다)";
 { // 진단용: 현재 화면 버전과 앱 연결 여부 표시
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v4 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v5 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
+renderFam();
 loadCities();
+
+// 어르신 폰: 지정된 정류장이 저장되어 있으면 앱을 열자마자 보여 주고 안내 시작
+if (famRole === "elder" && CFG.stop) { lastSig = sig(); showArrivals(CFG.stop); }
+
+window.fbPromise.then(api => {
+  FB = api;
+  FB.onAuthStateChanged(FB.auth, onAuth);
+}).catch(() => { if (famRole) famMsg("가족 연결 기능을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.", true); });
 </script>
 </body>
 </html>

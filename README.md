@@ -22,3 +22,16 @@
 firebase deploy --project bustime-c4cfd
 ```
 인증키는 코드에 넣지 않고 `firebase functions:secrets:set TAGO_KEY`로 등록합니다.
+
+## 가족 연결 (자녀가 어르신 안내 설정을 대신 관리)
+- 어르신 폰: 설정(⚙) → "이 폰은 어르신 폰입니다" → **연결 코드 8자리**가 만들어집니다.
+- 자녀: 설정(⚙) → "자녀 로그인 / 가입"(이메일·비밀번호) → 어르신 연결 코드 입력 →
+  버스 번호, 몇 분 전, 안내 정류장을 설정하면 어르신 폰에 바로 반영됩니다.
+- 여러 기기에서 같은 자녀 계정으로 동시에 로그인할 수 있고, 자녀가 여러 명이어도 됩니다.
+
+### Firebase 콘솔에서 한 번만 해 두기
+1. Authentication → 시작하기 → 로그인 방법에서 **이메일/비밀번호**와 **익명**을 사용 설정
+2. Firestore Database → 데이터베이스 만들기 (위치: `asia-northeast3` 서울)
+3. 배포: `firebase deploy --only firestore:rules,hosting --project bustime-c4cfd`
+
+보안 규칙은 `firestore.rules` 참고 (설정은 어르신 본인과 연결 코드를 입력한 자녀만 읽고 고칠 수 있음).

@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isElder(elderUid) { return signedIn() && request.auth.uid == elderUid; }
+    function isMember(elderUid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/elders/$(elderUid)/members/$(request.auth.uid));
+    }
+    function validElder(d) {
+      return d.keys().hasOnly(['code', 'buses', 'min', 'on', 'stop', 'nickname', 'updatedAt', 'updatedBy'])
+        && d.code is string
+        && (!('buses' in d) || (d.buses is string && d.buses.size() <= 100))
+        && (!('min' in d) || (d.min is number && d.min >= 1 && d.min <= 60))
+        && (!('on' in d) || d.on is bool)
+        && (!('stop' in d) || d.stop is map);
+    }
+
+    // 연결 코드 -> 어르신 uid. 코드를 알아야만 한 건씩 조회할 수 있고, 목록 조회는 막습니다.
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['elderUid'])
+        && request.resource.data.elderUid == request.auth.uid;
+      allow list, update, delete: if false;
+    }
+
+    // 어르신 한 명의 안내 설정: 어르신 본인과 연결된 자녀만 읽고 고칠 수 있습니다.
+    match /elders/{elderUid} {
+      allow get: if isElder(elderUid) || isMember(elderUid);
+      allow create: if isElder(elderUid) && validElder(request.resource.data);
+      allow update: if (isElder(elderUid) || isMember(elderUid))
+        && validElder(request.resource.data)
+        && request.resource.data.code == resource.data.code;
+      allow list, delete: if false;
+
+      // 연결된 자녀 목록: 올바른 연결 코드를 가진 사람만 자신을 추가할 수 있습니다.
+      match /members/{memberUid} {
+        allow get: if signedIn() && (request.auth.uid == memberUid || request.auth.uid == elderUid);
+        allow list: if signedIn() && request.auth.uid == elderUid;
+        allow create: if signedIn() && request.auth.uid == memberUid
+          && request.resource.data.keys().hasOnly(['code', 'createdAt'])
+          && request.resource.data.code is string
+          && get(/databases/$(database)/documents/codes/$(request.resource.data.code)).data.elderUid == elderUid;
+        allow delete: if signedIn() && (request.auth.uid == memberUid || request.auth.uid == elderUid);
+        allow update: if false;
+      }
+    }
+
+    // 자녀 본인이 연결한 어르신 목록
+    match /users/{uid}/links/{elderUid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+  }
+}

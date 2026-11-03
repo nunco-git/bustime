@@ -9,5 +9,6 @@
       { "source": "/api", "function": { "functionId": "bus", "region": "asia-northeast3" } }
     ]
   },
+  "firestore": { "rules": "firestore.rules" },
   "functions": [{ "source": "functions", "codebase": "bus", "runtime": "nodejs22" }]
 }
