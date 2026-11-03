@@ -106,6 +106,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
         <div id="asRes"></div>
       </details>
       <label>② 안내받을 버스 (눌러서 선택)</label>
+      <button type="button" class="ghost" id="busFold" data-busfold="1" style="margin:2px 0 4px"></button>
       <div id="busChips"></div>
       <input id="alertBus" placeholder="목록에 없으면 직접 입력 (예: 150, 207)" style="margin-top:6px">
       <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
@@ -873,7 +874,10 @@ async function fetchRoutes(stop) {
 function renderBusChips() {
   const box = $("busChips");
   if (!box) return;
+  const folded = ls("busFold", false);
+  $("busFold").textContent = folded ? "▼ 버스 번호 목록 펼치기" : "▲ 버스 번호 목록 숨기기";
   const stop = CFG.stop || current;
+  if (folded) { const sl = String(CFG.buses || "").trim(); box.innerHTML = `<div class="sub">선택한 버스: <b>${escH(sl || "없음")}</b></div>`; return; }
   if (!stop) { box.innerHTML = `<div class="sub">먼저 ①에서 안내받을 정류장을 고르세요.</div>`; return; }
   const k = stopKey(stop), r = routeCache[k];
   if (r === undefined) { fetchRoutes(stop); box.innerHTML = `<div class="sub">버스 목록을 불러오는 중…</div>`; return; }
@@ -1133,6 +1137,7 @@ document.addEventListener("click", e => {
   const d = b.dataset;
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
+  if (d.busfold != null) { lsSet("busFold", !ls("busFold", false)); renderBusChips(); }
   if (d.bus != null) toggleBus(d.bus);
   if (d.asset != null) {      // 설정창 검색 결과에서 지정
     const x = window._asStops[d.asset];
@@ -1224,7 +1229,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v33 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v34 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

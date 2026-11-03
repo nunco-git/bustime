@@ -76,6 +76,7 @@
       <label for="alertStop">① 안내받을 정류장</label>
       <select id="alertStop"></select>
       <label>② 안내받을 버스 (눌러서 선택)</label>
+      <button type="button" class="ghost" id="busFold" data-busfold="1" style="margin:2px 0 4px"></button>
       <div id="busChips"></div>
       <input id="alertBus" placeholder="목록에 없으면 직접 입력 (예: 150, 207)">
       <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
@@ -114,7 +115,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v8 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v9 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -419,7 +420,9 @@ function selBuses() {
   return String(CFG.buses || "").split(",").map(function (x) { return x.replace(/^\s+|\s+$/g, ""); }).filter(function (x) { return x; });
 }
 function renderBusChips() {
-  var box = $("busChips"), stop = CFG.stop || current;
+  var box = $("busChips"), stop = CFG.stop || current, folded = ls("busFold", false);
+  $("busFold").innerHTML = folded ? "▼ 버스 번호 목록 펼치기" : "▲ 버스 번호 목록 숨기기";
+  if (folded) { box.innerHTML = '<div class="sub">선택한 버스: <b>' + esc(selBuses().join(", ") || "없음") + "</b></div>"; return; }
   if (!stop) { box.innerHTML = '<div class="sub">먼저 ①에서 안내받을 정류장을 고르세요.</div>'; return; }
   var k = stopKey(stop), r = routeCache[k];
   if (r === undefined) { fetchRoutes(stop); box.innerHTML = '<div class="sub">버스 목록을 불러오는 중…</div>'; return; }
@@ -541,6 +544,7 @@ document.addEventListener("click", function (e) {
   var b = e.target;
   while (b && b.tagName !== "BUTTON") b = b.parentNode;
   if (!b || b === document) return;
+  if (b.getAttribute("data-busfold") != null) { lsSet("busFold", !ls("busFold", false)); renderBusChips(); return; }
   var bs = b.getAttribute("data-bus");
   if (bs != null) toggleBus(bs);
   var sc = b.getAttribute("data-scale"), fv = b.getAttribute("data-fav"), pk = b.getAttribute("data-pick");
