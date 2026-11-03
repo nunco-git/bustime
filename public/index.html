@@ -101,6 +101,10 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
         <button id="alertToggle">꺼짐</button>
         <button class="ghost" id="voiceTest">음성 테스트</button>
       </div>
+      <div id="battBox" hidden style="margin-top:8px">
+        <div class="sub" id="battMsg"></div>
+        <button class="ghost" id="battBtn" style="margin-top:4px">🔋 배터리 제한 풀기 (화면 꺼져도 안내)</button>
+      </div>
       <label for="alertStop">① 안내받을 정류장</label>
       <select id="alertStop"></select>
       <details class="inner">
@@ -663,7 +667,27 @@ async function keepAwake() {
     }
   } catch {}
 }
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && current) keepAwake(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  renderBatt();
+  if (current) { keepAwake(); loadArrivals(); }      // 화면을 다시 켜면 바로 최신 도착정보로 갱신
+});
+
+/* ---- 화면이 꺼져도 안내가 오도록: 앱의 배터리 사용 제한 해제 ---- */
+function renderBatt() {
+  const ok = NATIVE && typeof AndroidBridge.batteryOk === "function";
+  $("battBox").hidden = !ok;
+  if (!ok) return;
+  let good = true; try { good = AndroidBridge.batteryOk(); } catch (e) {}
+  $("battMsg").textContent = good ? "✅ 화면이 꺼져도 음성 안내를 받을 수 있게 설정되어 있습니다."
+    : "⚠ 배터리 제한 때문에 화면이 꺼지면 안내가 늦거나 멈출 수 있습니다. 아래 버튼을 누르고 '허용'을 선택하세요.";
+  $("battBtn").hidden = good;
+}
+function askBattery() {          // 안내를 처음 켤 때 한 번만 자동으로 허용 창을 띄움
+  if (!NATIVE || typeof AndroidBridge.batteryOk !== "function") return;
+  try { if (!AndroidBridge.batteryOk() && !ls("battAsked", false)) { lsSet("battAsked", true); AndroidBridge.requestBattery(); } } catch (e) {}
+}
+$("battBtn").onclick = () => { try { AndroidBridge.requestBattery(); } catch (e) {} };
 
 // 안드로이드 앱: 안내할 정류장 + 설정을 백그라운드 서비스에 전달 (이 기기 음성 안내를 끄면 하지 않음)
 function syncNative() {
@@ -686,6 +710,7 @@ function syncNative() {
 }
 
 function renderAlertUi() {
+  if (typeof renderBatt === "function") renderBatt();
   $("alertToggle").textContent = CFG.on ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
   $("alertToggle").classList.toggle("on", !!CFG.on);
   $("alertBus").value = CFG.buses || "";
@@ -1001,6 +1026,7 @@ function alarmBus(no) {
   if (turnOn && !CFG.on) p.on = true;
   saveAlert(p);
   if (turnOn && p.on && (!acctOn || listen())) { if (NATIVE) AndroidBridge.speakTest(); else { speak("음성 안내를 켰습니다."); keepAwake(); } }
+  if (turnOn && p.on) askBattery();
   loadArrivals();
 }
 
@@ -1206,6 +1232,7 @@ $("gear").onclick = () => {
 $("alertToggle").onclick = () => {
   const on = !CFG.on;
   saveAlert({ on, buses: $("alertBus").value });
+  if (on) askBattery();
   if (on && (!acctOn || listen())) {
     if (NATIVE) AndroidBridge.speakTest();
     else { speak("음성 안내를 켰습니다."); keepAwake(); }
@@ -1263,7 +1290,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v37 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v38 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

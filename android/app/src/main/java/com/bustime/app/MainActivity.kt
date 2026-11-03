@@ -1,10 +1,14 @@
 package com.bustime.app
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
@@ -137,6 +141,30 @@ class MainActivity : AppCompatActivity() {
                 .putExtra("repeat", repeat)
                 .putExtra("gapSec", gapSec)
             ContextCompat.startForegroundService(this@MainActivity, i)
+        }
+
+        /** 배터리 사용 제한이 풀려 있는지 (제한이 있으면 화면이 꺼졌을 때 안내가 늦거나 멈출 수 있음) */
+        @JavascriptInterface
+        fun batteryOk(): Boolean {
+            if (Build.VERSION.SDK_INT < 23) return true
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            return pm.isIgnoringBatteryOptimizations(packageName)
+        }
+
+        /** "배터리 사용량 제한 없음" 허용 창을 띄움 */
+        @JavascriptInterface
+        fun requestBattery() {
+            if (Build.VERSION.SDK_INT < 23) return
+            runOnUiThread {
+                try {
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(Uri.parse("package:$packageName"))
+                    )
+                } catch (e: Exception) {
+                    try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
+                }
+            }
         }
 
         @JavascriptInterface

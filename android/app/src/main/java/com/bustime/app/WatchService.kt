@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -47,6 +48,7 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
     private var ttsReady = false
     private val pending = mutableListOf<String>()
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     private var cityCode = ""
     private var nodeId = ""
@@ -113,6 +115,18 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bustime:watch").apply {
                 acquire(MAX_MS + 60_000L)
             }
+        }
+
+        // 화면이 꺼져도 와이파이가 잠들지 않게 함 (꺼지면 도착정보 조회가 막힘)
+        if (wifiLock == null) {
+            try {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                @Suppress("DEPRECATION")
+                wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "bustime:wifi").apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            } catch (e: Exception) { }
         }
 
         handler.removeCallbacks(pollRunnable)
@@ -253,6 +267,7 @@ class WatchService : Service(), TextToSpeech.OnInitListener {
         tts?.shutdown()
         executor.shutdownNow()
         wakeLock?.let { if (it.isHeld) it.release() }
+        wifiLock?.let { try { if (it.isHeld) it.release() } catch (e: Exception) { } }
         super.onDestroy()
     }
 }
