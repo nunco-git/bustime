@@ -314,7 +314,7 @@ const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib,
 const sameStop = (a, b) => a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode);
 const activeStop = () => CFG.stop || current;
 
-function saveAlert(p) {
+function saveAlert(p, extra) {      // extra: 같은 쓰기에 함께 보낼 계정 필드(즐겨찾기 등)
   Object.assign(CFG, p);
   if (!acctOn) {
     if ("on" in p) lsSet("busAlertOn", p.on);
@@ -326,7 +326,7 @@ function saveAlert(p) {
     if ("rep" in p) lsSet("busAlertRep", p.rep);
     if ("gap" in p) lsSet("busAlertGap", p.gap);
   } else {
-    cloudWrite(p);
+    cloudWrite(extra ? { ...p, ...extra } : p);
     lsSet("acctCfg", CFG);
   }
   lastSig = sig();
@@ -447,9 +447,12 @@ const favs = () => ls("busFavs", []);
 const stopOut = s => ({ cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
   nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? "") });
 const saveFavs = f => {
-  lsSet("busFavs", f); if (acctOn) cloudWrite({ favStops: f.map(stopOut) });
+  lsSet("busFavs", f);
+  const out = f.map(stopOut);
   // 즐겨찾기에서 뺀 정류장이 안내 정류장이면 안내 정류장도 비움 (안내받을 정류장은 즐겨찾기 안에서만 고름)
-  if (CFG.stop && !f.some(x => String(x.nodeid) === String(CFG.stop.nodeid) && String(x.cityCode) === String(CFG.stop.cityCode))) saveAlert({ stop: null });
+  // 계정에는 한 번에 같이 써서, 중간 상태(즐겨찾기는 지워졌는데 안내 정류장은 그대로)가 다른 쪽에 반영되지 않게 함
+  if (CFG.stop && !f.some(x => String(x.nodeid) === String(CFG.stop.nodeid) && String(x.cityCode) === String(CFG.stop.cityCode))) saveAlert({ stop: null }, { favStops: out });
+  else if (acctOn) cloudWrite({ favStops: out });
 };
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
 
@@ -1234,7 +1237,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v35 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v36 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

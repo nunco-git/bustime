@@ -122,7 +122,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v10 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v11 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -220,13 +220,14 @@ function stopOut(s) {
 }
 function saveFavs(f) {
   lsSet("busFavs", f);
-  if (acctOn) cloudWrite({ favStops: f.map(stopOut) });
-  // 즐겨찾기에서 뺀 정류장이 안내 정류장이면 안내 정류장도 비움
+  var out = f.map(stopOut), keep = true, i;
+  // 즐겨찾기에서 뺀 정류장이 안내 정류장이면 안내 정류장도 비움 (계정에는 한 번에 같이 씀)
   if (CFG.stop) {
-    var keep = false, i;
+    keep = false;
     for (i = 0; i < f.length; i++) if (String(f[i].nodeid) === String(CFG.stop.nodeid) && String(f[i].cityCode) === String(CFG.stop.cityCode)) keep = true;
-    if (!keep) saveAlert({ stop: null });
   }
+  if (!keep) saveAlert({ stop: null }, { favStops: out });
+  else if (acctOn) cloudWrite({ favStops: out });
 }
 
 function errText(e) {
@@ -254,14 +255,15 @@ function cloudWrite(p) {
   db.collection("accounts").doc(fbUser.uid).set(d, { merge: true }).then(function () { setMsg(""); }, function (e) { setMsg(errText(e), true); });
 }
 
-function saveAlert(p) {
+function saveAlert(p, extra) {
   var k;
   for (k in p) if (p.hasOwnProperty(k)) CFG[k] = p[k];
   if (!acctOn) {
     var keys = { on: "busAlertOn", buses: "busAlertBuses", min: "busAlertMin", vib: "busAlertVib", rep: "busAlertRep", gap: "busAlertGap", hear: "busAlertHear", stop: "busAlertStop" };
     for (k in p) if (p.hasOwnProperty(k) && keys[k]) lsSet(keys[k], p[k]);
   } else {
-    cloudWrite(p);
+    if (extra) { var m = {}; for (k in p) if (p.hasOwnProperty(k)) m[k] = p[k]; for (k in extra) if (extra.hasOwnProperty(k)) m[k] = extra[k]; cloudWrite(m); }
+    else cloudWrite(p);
     lsSet("acctCfg", CFG);
   }
   lastSig = sig();
