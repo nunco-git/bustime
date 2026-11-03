@@ -35,6 +35,7 @@
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
   .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
+  .wrap.inSettings > :not(.top):not(#settings) { display:none !important; }   /* 설정 화면에서는 아래 본 화면을 숨김 */
   details.grp { border-top:1px solid var(--line); margin-top:.7rem; padding-top:.4rem; }
   details.inner { margin-top:.5rem; }
   summary { font-weight:700; cursor:pointer; padding:.35rem 0; }
@@ -1052,7 +1053,13 @@ document.addEventListener("click", e => {
   if (d.del != null) { const f = favs(); f.splice(d.del, 1); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
 });
 
-$("gear").onclick = () => { const s = $("settings"); s.style.display = s.style.display === "block" ? "none" : "block"; };
+$("gear").onclick = () => {
+  const open = $("settings").style.display !== "block";
+  $("settings").style.display = open ? "block" : "none";
+  document.querySelector(".wrap").classList.toggle("inSettings", open);   // 설정을 열면 설정만 보이고, 닫으면 본 화면으로 돌아감
+  $("gear").textContent = open ? "← 돌아가기" : "⚙ 설정";
+  window.scrollTo(0, 0);
+};
 
 $("alertToggle").onclick = () => {
   const on = !CFG.on;
@@ -1114,7 +1121,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v22 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v23 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
