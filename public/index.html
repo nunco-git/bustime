@@ -438,7 +438,11 @@ function setScale(s, fromRemote) {
 const favs = () => ls("busFavs", []);
 const stopOut = s => ({ cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
   nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? "") });
-const saveFavs = f => { lsSet("busFavs", f); if (acctOn) cloudWrite({ favStops: f.map(stopOut) }); };
+const saveFavs = f => {
+  lsSet("busFavs", f); if (acctOn) cloudWrite({ favStops: f.map(stopOut) });
+  // 즐겨찾기에서 뺀 정류장이 안내 정류장이면 안내 정류장도 비움 (안내받을 정류장은 즐겨찾기 안에서만 고름)
+  if (CFG.stop && !f.some(x => String(x.nodeid) === String(CFG.stop.nodeid) && String(x.cityCode) === String(CFG.stop.cityCode))) saveAlert({ stop: null });
+};
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
 
 function renderFavs() {
@@ -892,7 +896,7 @@ const stopKey = x => x ? String(x.cityCode) + ":" + String(x.nodeid) : "";
 function renderStopSel() {
   const f = favs().map(stopOut);
   const cur = CFG.stop;
-  const list = cur && !f.some(x => stopKey(x) === stopKey(cur)) ? [cur, ...f] : f;
+  const list = f;
   window._selStops = list;
   $("alertStop").innerHTML = `<option value="">${list.length ? "(고르세요 / 지금 보고 있는 정류장)" : "(즐겨찾기가 없습니다 · 아래에서 검색하세요)"}</option>` +
     list.map(x => `<option value="${stopKey(x)}">${x.nodenm} (${x.cityName})</option>`).join("");
@@ -1217,7 +1221,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v31 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v32 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

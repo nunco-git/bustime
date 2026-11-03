@@ -114,7 +114,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v7 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v8 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -213,6 +213,12 @@ function stopOut(s) {
 function saveFavs(f) {
   lsSet("busFavs", f);
   if (acctOn) cloudWrite({ favStops: f.map(stopOut) });
+  // 즐겨찾기에서 뺀 정류장이 안내 정류장이면 안내 정류장도 비움
+  if (CFG.stop) {
+    var keep = false, i;
+    for (i = 0; i < f.length; i++) if (String(f[i].nodeid) === String(CFG.stop.nodeid) && String(f[i].cityCode) === String(CFG.stop.cityCode)) keep = true;
+    if (!keep) saveAlert({ stop: null });
+  }
 }
 
 function errText(e) {
@@ -351,8 +357,7 @@ function renderFavs() {
 }
 
 function renderStopSel() {
-  var f = favs().map(stopOut), cur = CFG.stop, list = f, i, found = false;
-  if (cur) { for (i = 0; i < f.length; i++) if (stopKey(f[i]) === stopKey(cur)) found = true; if (!found) list = [cur].concat(f); }
+  var f = favs().map(stopOut), cur = CFG.stop, list = f, i;
   var html = '<option value="">' + (list.length ? "(고르세요)" : "(즐겨찾기가 없습니다 · 아래에서 찾으세요)") + "</option>";
   for (i = 0; i < list.length; i++) html += '<option value="' + esc(stopKey(list[i])) + '">' + esc(list[i].nodenm) + " (" + esc(list[i].cityName) + ")</option>";
   $("alertStop").innerHTML = html;
