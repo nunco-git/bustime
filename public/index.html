@@ -35,6 +35,12 @@
   .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
   .code { font-size:1.6rem; font-weight:800; letter-spacing:.15rem; color:var(--main); }
   #settings { display:none; }
+  #map { height:340px; border-radius:12px; margin-top:8px; z-index:0; }
+  .mapwrap { position:relative; }
+  .cross { position:absolute; left:50%; top:calc(50% + 4px); width:26px; height:26px; margin:-13px 0 0 -13px; pointer-events:none; z-index:500;
+           border:3px solid #dc2626; border-radius:50%; box-shadow:0 0 0 2px #fff; }
+  .cross::after { content:""; position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px; background:#dc2626; border-radius:50%; }
+  .pop b { font-size:1rem; } .pop .row { margin-top:6px; }
   .chips { display:flex; gap:6px; margin-bottom:8px; }
   .chip { flex:1; min-width:0; background:#e0e7ff; color:var(--main); padding:.5rem .3rem; border-radius:10px; font-weight:700;
           white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -162,6 +168,22 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
       <input id="q" placeholder="정류장 이름 또는 번호">
       <button id="search">검색</button>
     </div>
+    <div class="row" style="margin-top:8px"><button class="ghost" id="mapOpen">🗺 지도에서 정류장 찾기</button></div>
+  </div>
+
+  <div class="card" id="mapBox" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <b>🗺 지도에서 정류장 찾기</b>
+      <button class="ghost" id="mapClose">닫기</button>
+    </div>
+    <div class="sub" style="margin:.3rem 0">지도를 움직여 빨간 동그라미를 찾을 곳에 맞추고 '여기서 찾기'를 누르세요. 파란 점이 정류장입니다. 점을 누르면 이름과 버튼이 나옵니다.</div>
+    <div class="row">
+      <button id="mapHere">여기서 찾기</button>
+      <button class="ghost" id="mapMe">📍 내 위치</button>
+    </div>
+    <div class="sub" id="mapMsg" style="margin-top:6px"></div>
+    <div class="mapwrap"><div id="map"></div><div class="cross"></div></div>
+    <div class="sub" style="margin-top:4px">지도 © OpenStreetMap 기여자</div>
   </div>
 
   <div class="card" id="favBox" style="display:none">
@@ -499,6 +521,7 @@ async function searchStops() {
     if (!items.length) { $("stops").innerHTML = `<div class="msg">검색 결과가 없습니다.</div>`; return; }
     const cityName = $("city").selectedOptions[0].text;
     window._stops = items.map(s => ({ ...s, cityCode: $("city").value, cityName }));
+    if (items[0] && items[0].gpslati) lsSet("mapCenter", [Number(items[0].gpslati), Number(items[0].gpslong)]);
     renderStops();
   } catch (e) { $("stops").innerHTML = `<div class="msg err">${e.message}</div>`; }
 }
@@ -594,6 +617,99 @@ function renderAlertUi() {
   $("alertRep").value = String(CFG.rep || 1);
   $("alertGap").value = String(CFG.gap || 60);
 }
+
+/* ================= 지도에서 정류장 찾기 ================= */
+let map = null, mapLayer = null, leafletP = null;
+const BUYEO = [36.2757, 126.9097];
+
+function loadLeaflet() {
+  if (leafletP) return leafletP;
+  leafletP = new Promise((res, rej) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet"; css.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";
+    document.head.appendChild(css);
+    const sc = document.createElement("script");
+    sc.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";
+    sc.onload = () => res(window.L);
+    sc.onerror = () => { leafletP = null; rej(new Error("지도를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.")); };
+    document.head.appendChild(sc);
+  });
+  return leafletP;
+}
+
+async function openMap() {
+  $("mapBox").style.display = "";
+  $("mapMsg").textContent = "지도를 불러오는 중…";
+  try {
+    const L = await loadLeaflet();
+    if (!map) {
+      map = L.map("map").setView(ls("mapCenter", BUYEO), 16);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+      mapLayer = L.layerGroup().addTo(map);
+    }
+    setTimeout(() => map.invalidateSize(), 50);
+    $("mapBox").scrollIntoView({ behavior: "smooth", block: "start" });
+    mapSearch();
+  } catch (e) { $("mapMsg").textContent = e.message; $("mapMsg").className = "sub err"; }
+}
+
+async function mapSearch() {
+  if (!map) return;
+  const c = map.getCenter();
+  lsSet("mapCenter", [c.lat, c.lng]);
+  $("mapMsg").className = "sub"; $("mapMsg").textContent = "정류장을 찾는 중…";
+  try {
+    const items = await call("nearby", { gpsLati: c.lat.toFixed(4), gpsLong: c.lng.toFixed(4) });
+    mapLayer.clearLayers();
+    items.forEach(it => {
+      const lat = Number(it.gpslati), lng = Number(it.gpslong);
+      if (isNaN(lat) || isNaN(lng)) return;
+      const code = String(it.citycode ?? $("city").value);
+      const cityName = (cityList.find(x => x.code === code) || {}).name || "";
+      const stop = { cityCode: code, cityName, nodeid: String(it.nodeid), nodenm: String(it.nodenm), nodeno: String(it.nodeno ?? "") };
+      const m = L.circleMarker([lat, lng], { radius: 11, color: "#fff", weight: 3, fillColor: "#1d4ed8", fillOpacity: 1 });
+      m.on("click", () => m.bindPopup(mapPopup(stop, m)).openPopup());
+      m.addTo(mapLayer);
+    });
+    $("mapMsg").textContent = items.length ? `정류장 ${items.length}곳 (빨간 동그라미 주변 500m)` : "이 근처에는 정류장이 없습니다. 지도를 움직여 다시 찾아 보세요.";
+  } catch (e) { $("mapMsg").className = "sub err"; $("mapMsg").textContent = e.message; }
+}
+
+function mapPopup(stop, marker) {
+  const box = document.createElement("div");
+  box.className = "pop";
+  const draw = () => {
+    const fav = isFav(stop);
+    box.innerHTML = `<b></b><br><small></small><div class="row"></div>`;
+    box.querySelector("b").textContent = stop.nodenm;
+    box.querySelector("small").textContent = (stop.cityName ? stop.cityName + " · " : "") + stop.nodeno;
+    const row = box.querySelector(".row");
+    const b1 = document.createElement("button"); b1.textContent = "도착정보";
+    b1.onclick = () => { pickCity(stop.cityCode); showArrivals(stop); };
+    const b2 = document.createElement("button"); b2.className = fav ? "ghost" : ""; b2.textContent = fav ? "★ 즐겨찾기 해제" : "☆ 즐겨찾기 추가";
+    b2.onclick = () => {
+      let f = favs();
+      if (fav) f = f.filter(x => !(String(x.nodeid) === stop.nodeid && String(x.cityCode) === stop.cityCode));
+      else { f.push(stop); pickCity(stop.cityCode); }
+      saveFavs(f); renderFavs(); draw();
+    };
+    row.append(b1, b2);
+  };
+  draw();
+  return box;
+}
+
+$("mapOpen").onclick = openMap;
+$("mapClose").onclick = () => { $("mapBox").style.display = "none"; };
+$("mapHere").onclick = mapSearch;
+$("mapMe").onclick = () => {
+  if (!navigator.geolocation) { $("mapMsg").className = "sub err"; $("mapMsg").textContent = "이 기기에서는 위치를 알 수 없습니다."; return; }
+  $("mapMsg").className = "sub"; $("mapMsg").textContent = "내 위치를 찾는 중…";
+  navigator.geolocation.getCurrentPosition(
+    pos => { map.setView([pos.coords.latitude, pos.coords.longitude], 17); mapSearch(); },
+    () => { $("mapMsg").className = "sub err"; $("mapMsg").textContent = "위치를 가져오지 못했습니다. 위치 권한을 허용했는지 확인해 주세요. (앱은 새 버전 설치가 필요합니다)"; },
+    { enableHighAccuracy: true, timeout: 15000 });
+};
 
 /* ================= 안내받을 정류장(설정창) ================= */
 const stopKey = x => x ? String(x.cityCode) + ":" + String(x.nodeid) : "";
@@ -911,7 +1027,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v16 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v17 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();

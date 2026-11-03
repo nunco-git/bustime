@@ -6,7 +6,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -23,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
     private var testTts: TextToSpeech? = null
     private var testReady = false
+    private var pendingGeo: Pair<String, GeolocationPermissions.Callback>? = null
 
     private val siteUrl = "https://bustime-c4cfd.web.app"
 
@@ -50,6 +53,23 @@ class MainActivity : AppCompatActivity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true   // 즐겨찾기/설정 저장(localStorage)
         web.webViewClient = WebViewClient()
+        // 지도의 '내 위치' 버튼: 위치 권한 요청을 웹 화면에 연결
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String, callback: GeolocationPermissions.Callback
+            ) {
+                if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    callback.invoke(origin, true, false)
+                } else {
+                    pendingGeo = Pair(origin, callback)
+                    requestPermissions(
+                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2
+                    )
+                }
+            }
+        }
         web.addJavascriptInterface(Bridge(), "AndroidBridge")
         web.loadUrl(siteUrl)
 
@@ -69,6 +89,14 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 2) {
+            pendingGeo?.let { it.second.invoke(it.first, grantResults.any { r -> r == PackageManager.PERMISSION_GRANTED }, false) }
+            pendingGeo = null
+        }
     }
 
     /** 웹 화면(자바스크립트)에서 부르는 기능 */

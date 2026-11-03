@@ -10,6 +10,8 @@ const OPS = {
   cities:   { path: "BusSttnInfoInqireService/getCtyCodeList", params: [] },
   stops:    { path: "BusSttnInfoInqireService/getSttnNoList", params: ["cityCode", "nodeNm", "nodeNo"] },
   arrivals: { path: "ArvlInfoInqireService/getSttnAcctoArvlPrearngeInfoList", params: ["cityCode", "nodeId"] },
+  // 좌표(지도 중심) 기준 500m 이내 정류소
+  nearby:   { path: "BusSttnInfoInqireService/getCrdntPrxmtSttnList", params: ["gpsLati", "gpsLong"] },
   // 노선별 경유 정류장(순서대로) / 노선별 버스 위치
   routeStops: { path: "BusRouteInfoInqireService/getRouteAcctoThrghSttnList", params: ["cityCode", "routeId"], rows: 300 },
   busLoc:     { path: "BusLcInfoInqireService/getRouteAcctoBusLcList", params: ["cityCode", "routeId"], rows: 100 },
@@ -17,7 +19,7 @@ const OPS = {
 
 // 공공데이터 호출 횟수 절약용 메모리 캐시 (같은 정류장을 여러 명이 봐도 한 번만 호출)
 const cache = new Map();
-const TTL = { arrivals: 15 * 1000, busLoc: 15 * 1000, stops: 10 * 60 * 1000, routeStops: 60 * 60 * 1000, cities: 60 * 60 * 1000 };
+const TTL = { arrivals: 15 * 1000, busLoc: 15 * 1000, stops: 10 * 60 * 1000, nearby: 10 * 60 * 1000, routeStops: 60 * 60 * 1000, cities: 60 * 60 * 1000 };
 
 exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: true }, async (req, res) => {
   const opName = String(req.query.op);
