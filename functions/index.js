@@ -75,22 +75,27 @@ async function stopDirsOf(cityCode, nodeId) {
   const key = "sd|" + cityCode + "|" + nodeId;
   const hit = dirCache.get(key);
   if (hit && Date.now() - hit.t < DIR_TTL) return hit.v;
-  const routes = asItems(await tagoJson("BusSttnInfoInqireService/getSttnThrghRouteList", { cityCode, nodeid: nodeId })).slice(0, 25);
-  const out = [];
+  const all = asItems(await tagoJson("BusSttnInfoInqireService/getSttnThrghRouteList", { cityCode, nodeid: nodeId }));
+  const routes = all.slice(0, 25);
+  const out = all.slice(25).map(r => ({ routeno: String(r.routeno), dests: [] }));   // 계산 한도를 넘은 노선도 번호는 보여 줌
+
   let failed = 0;
   await Promise.all(routes.map(async r => {
-    let dests = [], known = false;
+    let dests = [], onlyTerminal = false;
     try {
       const st = await routeStopsCached(cityCode, r.routeid);
-      known = st.length > 0;
-      for (const m of st.filter(x => x.id === nodeId)) {
+      const ms = st.filter(x => x.id === nodeId);
+      let term = 0;
+      for (const m of ms) {
         const same = st.filter(x => x.ud === m.ud && x.ord >= m.ord);
         if (!same.length) continue;
         const last = same.reduce((a, b) => (b.ord > a.ord ? b : a));
-        if (last.id !== nodeId && !dests.includes(last.nm)) dests.push(last.nm);
+        if (last.id === nodeId) term++;
+        else if (!dests.includes(last.nm)) dests.push(last.nm);
       }
+      onlyTerminal = ms.length > 0 && term === ms.length;     // 이 정류장이 해당 노선의 종점일 때
     } catch (e) { failed++; }
-    if (known && !dests.length) return;     // 이 정류장이 종점 -> 제외
+    if (onlyTerminal) dests = ["종점"];       // 빼지 않고 '종점'으로 표시 (도착정보에는 나오므로 목록에서도 고를 수 있어야 함)
     out.push({ routeno: String(r.routeno), dests });
   }));
   if (out.length && !failed) dirCache.set(key, { t: Date.now(), v: out });
