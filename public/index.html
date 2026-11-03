@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>버스 도착정보</title>
+<style>
+  :root { --scale:1.5; --bg:#f3f4f6; --card:#fff; --ink:#111827; --sub:#4b5563; --main:#1d4ed8; --line:#d1d5db; }
+  html { font-size: calc(16px * var(--scale)); }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Malgun Gothic",sans-serif; background:var(--bg); color:var(--ink); line-height:1.4; }
+  .wrap { max-width:760px; margin:0 auto; padding:12px; }
+  .top { display:flex; justify-content:space-between; align-items:center; margin:4px 0 12px; }
+  h1 { font-size:1.3rem; margin:0; }
+  .card { background:var(--card); border-radius:14px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  select, input, button { font-size:1rem; padding:.55rem .7rem; border:2px solid var(--line); border-radius:10px; font-family:inherit; }
+  select, input { flex:1; min-width:0; background:#fff; color:var(--ink); }
+  button { background:var(--main); color:#fff; border:0; cursor:pointer; }
+  button.ghost { background:#e0e7ff; color:var(--main); }
+  button.on { background:#16a34a; color:#fff; }
+  button.sel { outline:3px solid #f59e0b; }
+  .stop { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; padding:.6rem 0; border-bottom:1px solid var(--line); }
+  .stop:last-child, .bus:last-child { border:0; }
+  .stop .btns { display:flex; gap:6px; flex-wrap:wrap; }
+  small, .sub { color:var(--sub); font-size:.8rem; }
+  .bus { display:flex; justify-content:space-between; align-items:center; padding:.6rem 0; border-bottom:1px solid var(--line); }
+  .bus.watch { background:#fef9c3; border-radius:8px; padding-left:6px; padding-right:6px; }
+  .no { font-weight:800; font-size:1.3rem; }
+  .min { font-weight:800; color:var(--main); font-size:1.3rem; text-align:right; }
+  .msg { color:var(--sub); text-align:center; padding:.8rem; }
+  .err { color:#b91c1c; }
+  .set label { display:block; font-weight:700; margin:.7rem 0 .3rem; }
+  #settings { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>🚌 버스 도착정보</h1>
+    <button class="ghost" id="gear">⚙ 설정</button>
+  </div>
+
+  <div class="card set" id="settings">
+    <b>글자 크기</b>
+    <div class="row" id="fontBtns" style="margin-top:.4rem">
+      <button class="ghost" data-scale="1">작게</button>
+      <button class="ghost" data-scale="1.25">보통</button>
+      <button class="ghost" data-scale="1.5">크게</button>
+      <button class="ghost" data-scale="1.75">아주 크게</button>
+    </div>
+
+    <label>🔔 음성 안내</label>
+    <div class="row">
+      <button id="alertToggle">꺼짐</button>
+      <button class="ghost" id="voiceTest">음성 테스트</button>
+    </div>
+    <label for="alertBus">안내받을 버스 번호 (여러 개는 쉼표로)</label>
+    <input id="alertBus" placeholder="예: 150, 207">
+    <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
+    <select id="alertMin">
+      <option>1</option><option>2</option><option>3</option><option selected>5</option>
+      <option>7</option><option>10</option><option>15</option>
+    </select>
+    <div class="sub" id="alertNote" style="margin-top:.6rem">
+      ※ 음성 안내를 받으려면 해당 정류장의 도착정보 화면을 켜 두어야 합니다.
+      화면이 꺼지거나 다른 앱으로 넘어가면 안내가 나오지 않을 수 있습니다.
+      처음 한 번 "음성 테스트"를 눌러 소리가 나는지 확인하세요.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <select id="city"></select>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="q" placeholder="정류장 이름 또는 번호">
+      <button id="search">검색</button>
+    </div>
+  </div>
+
+  <div class="card" id="favBox" style="display:none">
+    <b>즐겨찾기</b>
+    <div id="favs"></div>
+  </div>
+
+  <div class="card" id="stopsBox" style="display:none">
+    <b>정류장</b>
+    <div id="stops"></div>
+  </div>
+
+  <div class="card" id="arrBox" style="display:none">
+    <div class="row" style="justify-content:space-between">
+      <b id="arrTitle"></b>
+      <button class="ghost" id="refresh">새로고침</button>
+    </div>
+    <div id="arrivals"></div>
+    <div class="sub" id="updated" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+// Firebase Hosting의 /api 가 bus 함수로 연결됩니다 (firebase.json rewrites)
+const API = "/api";
+const DEFAULT_CITY_NAME = "부여";
+const REFRESH_SEC = 30;
+const MAX_WATCH_MIN = 60;      // 호출 횟수 절약: 한 번 켜면 60분까지만 자동 갱신
+
+const $ = id => document.getElementById(id);
+const NATIVE = typeof window.AndroidBridge !== "undefined";   // 안드로이드 앱 안에서 열린 경우
+let current = null, timer = null, watchStart = 0, wakeLock = null;
+const announced = {};          // 이미 안내한 버스 기록
+
+const toArr = v => v == null || v === "" ? [] : Array.isArray(v) ? v : [v];
+const ls = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+
+async function call(op, params = {}) {
+  const u = new URL(API, location.origin);
+  u.searchParams.set("op", op);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  const r = await fetch(u);
+  const j = await r.json();
+  const h = j.response?.header;
+  if (h && h.resultCode !== "00") throw new Error(h.resultMsg || "API 오류");
+  return toArr(j.response?.body?.items?.item);
+}
+
+/* ---------- 글자 크기 ---------- */
+function setScale(s) {
+  document.documentElement.style.setProperty("--scale", s);
+  lsSet("busScale", s);
+  document.querySelectorAll("#fontBtns button").forEach(b => b.classList.toggle("sel", Number(b.dataset.scale) === Number(s)));
+}
+
+/* ---------- 즐겨찾기 ---------- */
+const favs = () => ls("busFavs", []);
+const saveFavs = f => lsSet("busFavs", f);
+const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
+
+function renderFavs() {
+  const f = favs();
+  $("favBox").style.display = f.length ? "" : "none";
+  $("favs").innerHTML = f.map((s, i) =>
+    `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
+     <div class="btns"><button data-fav="${i}">보기</button> <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
+}
+
+function renderStops() {
+  $("stops").innerHTML = window._stops.map((s, i) => {
+    const on = isFav(s);
+    return `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
+      <div class="btns"><button data-st="${i}">도착정보</button>
+      <button class="ghost" data-add="${i}">${on ? "해제" : "추가"}</button></div></div>`;
+  }).join("");
+}
+
+/* ---------- 도시/정류장 ---------- */
+async function loadCities() {
+  try {
+    const cities = await call("cities");
+    $("city").innerHTML = cities.map(c => `<option value="${c.citycode}">${c.cityname}</option>`).join("");
+    const d = cities.find(c => c.cityname.includes(DEFAULT_CITY_NAME));
+    if (d) $("city").value = d.citycode;
+  } catch (e) { $("city").innerHTML = `<option>도시 목록 오류: ${e.message}</option>`; }
+}
+
+async function searchStops() {
+  const q = $("q").value.trim();
+  if (!q) return;
+  $("stopsBox").style.display = "";
+  $("stops").innerHTML = `<div class="msg">검색 중…</div>`;
+  try {
+    const params = { cityCode: $("city").value };
+    /^\d+$/.test(q) ? params.nodeNo = q : params.nodeNm = q;
+    const items = await call("stops", params);
+    if (!items.length) { $("stops").innerHTML = `<div class="msg">검색 결과가 없습니다.</div>`; return; }
+    const cityName = $("city").selectedOptions[0].text;
+    window._stops = items.map(s => ({ ...s, cityCode: $("city").value, cityName }));
+    renderStops();
+  } catch (e) { $("stops").innerHTML = `<div class="msg err">${e.message}</div>`; }
+}
+
+/* ---------- 음성 안내 ---------- */
+const alertCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: ls("busAlertMin", 5) });
+
+function speak(text) {
+  if (!("speechSynthesis" in window)) return false;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "ko-KR";
+  u.rate = 0.9;
+  const v = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith("ko"));
+  if (v) u.voice = v;
+  speechSynthesis.speak(u);
+  return true;
+}
+
+const norm = s => String(s).replace(/\s+/g, "");
+function busLabel(no) { return /^\d+(-\d+)?$/.test(String(no).trim()) ? `${no}번 버스` : `${no} 버스`; }
+
+function checkAlerts(items) {
+  const c = alertCfg();
+  if (!c.on || NATIVE) return;   // 앱에서는 백그라운드 서비스가 음성 안내를 담당
+  const wanted = String(c.buses).split(",").map(norm).filter(Boolean);
+  if (!wanted.length) return;
+  const limit = Number(c.min) * 60;
+  const seen = new Set();
+  for (const b of items) {
+    if (!wanted.includes(norm(b.routeno))) continue;
+    const key = current.cityCode + ":" + current.nodeid + ":" + norm(b.routeno);
+    seen.add(key);
+    const sec = Number(b.arrtime ?? 1e9);
+    if (sec <= limit) {
+      if (!announced[key]) {
+        announced[key] = true;
+        const m = Math.round(sec / 60);
+        const when = m <= 1 ? "곧 도착합니다" : `약 ${m}분 후 도착합니다`;
+        speak(`${busLabel(b.routeno)}가 ${current.nodenm} 정류장에 ${when}.`);
+      }
+    } else if (sec > limit + 120) {
+      delete announced[key];       // 다음 버스를 위해 초기화
+    }
+  }
+  // 목록에서 사라진 버스(이미 지나감)는 기록 초기화
+  for (const k of Object.keys(announced)) if (k.startsWith(current.cityCode + ":" + current.nodeid + ":") && !seen.has(k)) delete announced[k];
+}
+
+async function keepAwake() {
+  try {
+    if (!NATIVE && "wakeLock" in navigator && alertCfg().on && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && current) keepAwake(); });
+
+// 안드로이드 앱: 지금 보고 있는 정류장 + 설정을 백그라운드 서비스에 전달
+function syncNative() {
+  if (!NATIVE) return;
+  const c = alertCfg();
+  const buses = String(c.buses).split(",").map(s => s.trim()).filter(Boolean).join(",");
+  try {
+    if (c.on && buses && current) {
+      AndroidBridge.startWatch(String(current.cityCode), String(current.nodeid), String(current.nodenm), buses, Number(c.min));
+    } else {
+      AndroidBridge.stopWatch();
+    }
+  } catch (e) {}
+}
+
+function renderAlertUi() {
+  const c = alertCfg();
+  $("alertToggle").textContent = c.on ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
+  $("alertToggle").classList.toggle("on", c.on);
+  $("alertBus").value = c.buses;
+  $("alertMin").value = String(c.min);
+}
+
+/* ---------- 도착정보 ---------- */
+async function showArrivals(stop) {
+  current = stop;
+  watchStart = Date.now();
+  $("arrBox").style.display = "";
+  $("arrTitle").textContent = stop.nodenm;
+  $("arrivals").innerHTML = `<div class="msg">불러오는 중…</div>`;
+  $("updated").textContent = "";
+  $("arrBox").scrollIntoView({ behavior: "smooth", block: "start" });
+  clearInterval(timer);
+  keepAwake();
+  syncNative();
+  await loadArrivals();
+  timer = setInterval(() => {
+    if (Date.now() - watchStart > MAX_WATCH_MIN * 60000) {
+      clearInterval(timer);
+      $("updated").textContent = "자동 갱신이 멈췄습니다. '새로고침'을 누르면 다시 시작합니다.";
+      return;
+    }
+    loadArrivals();
+  }, REFRESH_SEC * 1000);
+}
+
+async function loadArrivals() {
+  if (!current) return;
+  try {
+    const items = await call("arrivals", { cityCode: current.cityCode, nodeId: current.nodeid });
+    if (!items.length) { $("arrivals").innerHTML = `<div class="msg">현재 도착 예정 버스가 없습니다.</div>`; }
+    else {
+      items.sort((a, b) => (a.arrtime ?? 1e9) - (b.arrtime ?? 1e9));
+      const wanted = alertCfg().on ? String(alertCfg().buses).split(",").map(norm).filter(Boolean) : [];
+      $("arrivals").innerHTML = items.map(b => {
+        const m = Math.floor((b.arrtime ?? 0) / 60);
+        const w = wanted.includes(norm(b.routeno)) ? " watch" : "";
+        return `<div class="bus${w}"><div><span class="no">${b.routeno}</span> <small>${b.routetp ?? ""}${w ? " 🔔" : ""}</small></div>
+          <div class="min">${m <= 1 ? "곧 도착" : m + "분"}<br><small>${b.arrprevstationcnt ?? "-"}정류장 전</small></div></div>`;
+      }).join("");
+    }
+    $("updated").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
+    checkAlerts(items);
+  } catch (e) { $("arrivals").innerHTML = `<div class="msg err">${e.message}</div>`; }
+}
+
+/* ---------- 이벤트 ---------- */
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  const d = b.dataset;
+  if (d.scale) setScale(d.scale);
+  if (d.st != null) showArrivals(window._stops[d.st]);
+  if (d.add != null) {
+    const s = window._stops[d.add];
+    const f = favs().filter(x => !(x.nodeid === s.nodeid && x.cityCode === s.cityCode));
+    if (f.length === favs().length) f.push(s);   // 없었으면 추가, 있었으면 해제
+    saveFavs(f); renderFavs(); renderStops();
+  }
+  if (d.fav != null) showArrivals(favs()[d.fav]);
+  if (d.del != null) { const f = favs(); f.splice(d.del, 1); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
+});
+
+$("gear").onclick = () => { const s = $("settings"); s.style.display = s.style.display === "block" ? "none" : "block"; };
+$("alertToggle").onclick = () => {
+  const on = !alertCfg().on;
+  lsSet("busAlertOn", on);
+  renderAlertUi();
+  if (on) {
+    if (NATIVE) AndroidBridge.speakTest();
+    else { speak("음성 안내를 켰습니다."); keepAwake(); }
+  }
+  syncNative();
+};
+$("alertBus").addEventListener("input", e => lsSet("busAlertBuses", e.target.value));
+$("alertBus").addEventListener("change", syncNative);
+$("alertMin").onchange = e => { lsSet("busAlertMin", Number(e.target.value)); syncNative(); };
+$("voiceTest").onclick = () => {
+  if (NATIVE) { AndroidBridge.speakTest(); return; }
+  if (!speak("음성 안내 테스트입니다. 이 소리가 들리면 정상입니다.")) alert("이 기기에서는 음성 안내를 지원하지 않습니다.");
+};
+$("search").onclick = searchStops;
+$("q").addEventListener("keydown", e => e.key === "Enter" && searchStops());
+$("refresh").onclick = () => { if (current) showArrivals(current); };
+
+if ("speechSynthesis" in window) speechSynthesis.getVoices();
+setScale(ls("busScale", 1.5));
+renderAlertUi();
+if (NATIVE) $("alertNote").textContent =
+  "※ 안내는 지금 보고 있는 정류장 기준입니다. 정류장의 도착정보를 먼저 열고 음성 안내를 켜세요. " +
+  "그 뒤에는 화면을 끄거나 다른 앱을 써도 안내가 나옵니다. (최대 60분, 상단 알림의 '안내 종료'로 끌 수 있습니다)";
+renderFavs();
+loadCities();
+</script>
+</body>
+</html>

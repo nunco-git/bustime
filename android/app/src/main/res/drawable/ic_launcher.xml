@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <!-- 파란 원 배경 -->
+    <path
+        android:fillColor="#1D4ED8"
+        android:pathData="M48,0 a48,48 0 1 1 0,96 a48,48 0 1 1 0,-96 z" />
+    <!-- 버스 몸체 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,26 H74 V68 H22 Z" />
+    <!-- 창문 -->
+    <path
+        android:fillColor="#1D4ED8"
+        android:pathData="M27,32 H69 V48 H27 Z" />
+    <!-- 바퀴 -->
+    <path
+        android:fillColor="#1D4ED8"
+        android:pathData="M30,56 H38 V64 H30 Z M58,56 H66 V64 H58 Z" />
+    <!-- 아래 받침 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,68 H38 V74 H28 Z M58,68 H68 V74 H58 Z" />
+</vector>
