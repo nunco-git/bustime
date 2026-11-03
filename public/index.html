@@ -81,6 +81,13 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
     </div>
     <label for="alertBus">안내받을 버스 번호 (여러 개는 쉼표로)</label>
     <input id="alertBus" placeholder="예: 150, 207">
+    <label for="alertStop">안내받을 정류장</label>
+    <select id="alertStop"></select>
+    <div class="row" style="margin-top:6px">
+      <input id="asQ" placeholder="정류장 검색 (위에서 고른 시·군)">
+      <button class="ghost" id="asSearch">검색</button>
+    </div>
+    <div id="asRes"></div>
     <label for="alertMin">도착 몇 분 전에 안내할까요?</label>
     <select id="alertMin">
       <option>1</option><option>2</option><option>3</option><option selected>5</option>
@@ -134,10 +141,9 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
         <button id="hearToggle">음성 안내 듣기: 켜짐</button>
         <button class="ghost" id="muteToggle">이 기기에서만 듣지 않기: 선택 안 함</button>
       </div>
-      <div class="sub" id="famStop" style="margin-top:6px"></div>
       <div class="sub" style="margin-top:4px">
         ※ 위의 '버스 번호 / 몇 분 전 / 음성 안내'를 바꾸면 같은 계정의 모든 기기에 적용됩니다.
-        안내할 정류장은 검색해서 즐겨찾기에 추가한 뒤, 즐겨찾기에서 '안내 정류장으로 설정'을 누르세요.
+        안내받을 정류장은 위의 '안내받을 정류장'에서 고르거나 검색해서 지정하세요.
         '음성 안내 듣기'는 같은 계정의 모든 기기에 똑같이 적용되고, '이 기기에서만 듣지 않기'는 지금 쓰는 이 기기에만 적용됩니다.
         (예: 자녀 폰에서만 소리가 나지 않게 하려면 자녀 폰에서 '이 기기에서만 듣지 않기'를 누르세요.)
       </div>
@@ -249,7 +255,7 @@ const announced = {};          // 버스별 안내 기록 {횟수, 마지막 시
 /* ================= 안내 설정(CFG): 기기 안에만 저장 또는 계정(클라우드) ================= */
 let acctOn = ls("acctOn", false);          // 이메일 계정으로 로그인해 설정을 클라우드와 동기화 중인지
 const localCfg = () => ({ on: ls("busAlertOn", false), buses: ls("busAlertBuses", ""), min: Number(ls("busAlertMin", 5)),
-  hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: null });
+  hear: ls("busAlertHear", true), vib: ls("busAlertVib", false), rep: Number(ls("busAlertRep", 1)), gap: Number(ls("busAlertGap", 60)), stop: ls("busAlertStop", null) });
 let CFG = localCfg();
 if (acctOn) { const c = ls("acctCfg", null); if (c) CFG = c; }   // 인터넷이 없어도 마지막 설정 사용
 let FB = null, authUser = null, unsubA = null, lastSig = "";
@@ -259,7 +265,7 @@ const listen = () => CFG.hear !== false && !ls("muteHere", false);
 const alertCfg = () => CFG;
 const sig = () => JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && CFG.stop.cityCode, CFG.stop && CFG.stop.nodeid]);
 const sameStop = (a, b) => a && b && String(a.nodeid) === String(b.nodeid) && String(a.cityCode) === String(b.cityCode);
-const activeStop = () => (acctOn && CFG.stop) ? CFG.stop : current;
+const activeStop = () => CFG.stop || current;
 
 function saveAlert(p) {
   Object.assign(CFG, p);
@@ -269,6 +275,7 @@ function saveAlert(p) {
     if ("min" in p) lsSet("busAlertMin", p.min);
     if ("vib" in p) lsSet("busAlertVib", p.vib);
     if ("hear" in p) lsSet("busAlertHear", p.hear);
+    if ("stop" in p) lsSet("busAlertStop", p.stop);
     if ("rep" in p) lsSet("busAlertRep", p.rep);
     if ("gap" in p) lsSet("busAlertGap", p.gap);
   } else {
@@ -360,9 +367,10 @@ function renderFavs() {
   $("favBox").style.display = rows.length ? "" : "none";
   const cn = rows.length && $("city").selectedOptions[0] ? $("city").selectedOptions[0].text : "";
   $("favTitle").textContent = cn ? `즐겨찾기 (${cn})` : "즐겨찾기";
+  if (typeof renderStopSel === "function") renderStopSel();
   $("favs").innerHTML = rows.map(({ s, i }) =>
     `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small></div>
-     <div class="btns"><button data-fav="${i}">보기</button>${acctOn ? ` <button class="ghost" data-setfav="${i}">안내 정류장으로 설정</button>` : ""} <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
+     <div class="btns"><button data-fav="${i}">보기</button> <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
 }
 
 function renderStops() {
@@ -582,9 +590,52 @@ function renderAlertUi() {
   $("alertMin").value = String(CFG.min);
   $("vibToggle").textContent = CFG.vib ? "켜짐 (누르면 끔)" : "꺼짐 (누르면 켬)";
   $("vibToggle").classList.toggle("on", !!CFG.vib);
+  renderStopSel();
   $("alertRep").value = String(CFG.rep || 1);
   $("alertGap").value = String(CFG.gap || 60);
 }
+
+/* ================= 안내받을 정류장(설정창) ================= */
+const stopKey = x => x ? String(x.cityCode) + ":" + String(x.nodeid) : "";
+function renderStopSel() {
+  const f = favs().map(stopOut);
+  const cur = CFG.stop;
+  const list = cur && !f.some(x => stopKey(x) === stopKey(cur)) ? [cur, ...f] : f;
+  window._selStops = list;
+  $("alertStop").innerHTML = `<option value="">${list.length ? "(고르세요 / 지금 보고 있는 정류장)" : "(즐겨찾기가 없습니다 · 아래에서 검색하세요)"}</option>` +
+    list.map(x => `<option value="${stopKey(x)}">${x.nodenm} (${x.cityName})</option>`).join("");
+  $("alertStop").value = cur ? stopKey(cur) : "";
+}
+
+function setGuideStop(x) {
+  const stop = x ? { cityCode: String(x.cityCode), nodeid: String(x.nodeid), nodenm: String(x.nodenm), nodeno: String(x.nodeno ?? ""), cityName: String(x.cityName || "") } : null;
+  saveAlert({ stop });
+  if (stop && !sameStop(current, stop)) showArrivals(stop);   // 고른 정류장의 도착정보를 바로 보여 줌
+}
+
+$("alertStop").onchange = e => {
+  const x = (window._selStops || []).find(y => stopKey(y) === e.target.value);
+  setGuideStop(x || null);
+};
+
+async function searchGuide() {
+  const q = $("asQ").value.trim();
+  if (!q) return;
+  $("asRes").innerHTML = `<div class="msg">검색 중…</div>`;
+  try {
+    const cityCode = $("city").value, cityName = $("city").selectedOptions[0] ? $("city").selectedOptions[0].text : "";
+    const params = { cityCode };
+    /^\d+$/.test(q) ? params.nodeNo = q : params.nodeNm = q;
+    const items = await call("stops", params);
+    if (!items.length) { $("asRes").innerHTML = `<div class="msg">검색 결과가 없습니다. (${cityName})</div>`; return; }
+    window._asStops = items.map(s => ({ ...stopOut({ ...s, cityCode, cityName }) }));
+    $("asRes").innerHTML = window._asStops.map((x, i) =>
+      `<div class="stop"><div><b>${x.nodenm}</b><br><small>${x.cityName} · ${x.nodeno}</small></div>
+       <div class="btns"><button data-asset="${i}">이 정류장으로 지정</button></div></div>`).join("");
+  } catch (e) { $("asRes").innerHTML = `<div class="msg err">${e.message}</div>`; }
+}
+$("asSearch").onclick = searchGuide;
+$("asQ").addEventListener("keydown", e => e.key === "Enter" && searchGuide());
 
 /* ================= 도착정보 ================= */
 async function showArrivals(stop) {
@@ -704,9 +755,6 @@ function renderFam() {
     const mute = !!ls("muteHere", false);
     $("muteToggle").textContent = "이 기기에서만 듣지 않기: " + (mute ? "선택함" : "선택 안 함");
     $("muteToggle").classList.toggle("sel", mute);
-    $("famStop").textContent = CFG.stop
-      ? `안내 정류장: ${CFG.stop.nodenm} (${CFG.stop.cityName})`
-      : "안내 정류장이 아직 없습니다. 정류장을 즐겨찾기에 추가한 뒤 '안내 정류장으로 설정'을 누르세요.";
   }
   renderFavs();
   if (window._stops) renderStops();
@@ -779,15 +827,12 @@ document.addEventListener("click", e => {
   const d = b.dataset;
   if (d.scale) { setScale(d.scale); if (acctOn) cloudWrite({ scale: Number(d.scale) }); }
   if (d.st != null) showArrivals(window._stops[d.st]);
-  if (d.setfav != null) {
-    const s = favs()[d.setfav];
-    saveAlert({ stop: { cityCode: String(s.cityCode), nodeid: String(s.nodeid), nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? ""), cityName: String(s.cityName) } });
-    famMsg("안내 정류장을 '" + s.nodenm + "'(으)로 설정했습니다.");
-  }
-  if (d.setstop != null) {
-    const s = window._stops[d.setstop];
-    saveAlert({ stop: { cityCode: String(s.cityCode), nodeid: String(s.nodeid), nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? ""), cityName: String(s.cityName) } });
-    famMsg("안내 정류장을 '" + s.nodenm + "'(으)로 설정했습니다.");
+  if (d.asset != null) {      // 설정창 검색 결과에서 지정
+    const x = window._asStops[d.asset];
+    const f = favs();
+    if (!f.some(y => String(y.nodeid) === String(x.nodeid) && String(y.cityCode) === String(x.cityCode))) { f.push(x); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
+    setGuideStop(x);
+    $("asRes").innerHTML = ""; $("asQ").value = "";
   }
   if (d.add != null) {
     const s = window._stops[d.add];
@@ -861,7 +906,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v14 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v15 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();
@@ -869,7 +914,7 @@ renderFam();
 loadCities();
 
 // 로그인된 기기: 지정된 정류장이 저장되어 있으면 앱을 열자마자 보여 주고 안내 시작
-if (acctOn && listen() && CFG.stop) { lastSig = sig(); showArrivals(CFG.stop); }
+if (listen() && CFG.stop) { lastSig = sig(); showArrivals(CFG.stop); }
 
 window.fbPromise.then(api => {
   FB = api;

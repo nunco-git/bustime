@@ -18,7 +18,7 @@ service cloud.firestore {
         && (!('favCities' in request.resource.data) || (request.resource.data.favCities is list && request.resource.data.favCities.size() <= 3))
         && (!('hear' in request.resource.data) || request.resource.data.hear is bool)
         && (!('scale' in request.resource.data) || (request.resource.data.scale is number && request.resource.data.scale >= 0.5 && request.resource.data.scale <= 3))
-        && (!('stop' in request.resource.data) || request.resource.data.stop is map);
+        && (!('stop' in request.resource.data) || request.resource.data.stop == null || request.resource.data.stop is map);
       allow delete: if false;
     }
   }
