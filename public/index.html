@@ -124,7 +124,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
         <button class="ghost" id="famSignUp">가입</button>
       </div>
       <div class="sub" style="margin-top:.4rem">
-        같은 이메일로 어르신 폰과 자녀 폰에서 모두 로그인하면, 버스 번호·안내 시간·정류장이 모든 기기에서 똑같이 저장되고 바로 반영됩니다.
+        같은 이메일로 어르신 폰과 자녀 폰에서 모두 로그인하면, 즐겨찾는 시·군, 즐겨찾기 정류장, 버스 번호·안내 시간·진동·반복 설정이 모든 기기에서 똑같이 저장되고 바로 반영됩니다.
         (처음이면 '가입'을 누르세요)
       </div>
     </div>
@@ -290,6 +290,12 @@ function applyRemote(d) {
   CFG = { on: !!d.on, buses: d.buses || "", min: Number(d.min) || 5, vib: !!d.vib,
           rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
+  if (Array.isArray(d.favStops)) { lsSet("busFavs", d.favStops); renderFavs(); }
+  if (Array.isArray(d.favCities)) {
+    lsSet("busFavCities", d.favCities);
+    if (d.favCities.length) { lsSet("fcAsked", true); $("fcModal").hidden = true; }   // 이미 정해 둔 계정이면 처음 팝업 생략
+    if (typeof renderChips === "function" && cityList.length) renderChips();
+  }
   renderAlertUi();
   renderFam();
   const s = sig();
@@ -338,7 +344,9 @@ function setScale(s) {
 }
 
 const favs = () => ls("busFavs", []);
-const saveFavs = f => lsSet("busFavs", f);
+const stopOut = s => ({ cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
+  nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? "") });
+const saveFavs = f => { lsSet("busFavs", f); if (acctOn) cloudWrite({ favStops: f.map(stopOut) }); };
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
 
 function renderFavs() {
@@ -396,7 +404,11 @@ $("city").onchange = () => { lsSet("busCity", $("city").value); renderChips(); }
 /* ---- 즐겨찾는 시·군 (최대 3개) ---- */
 const MAXFC = 3;
 const fcs = () => ls("busFavCities", []);
-const saveFcs = a => lsSet("busFavCities", a.slice(0, MAXFC));
+const saveFcs = a => {
+  const f = a.slice(0, MAXFC);
+  lsSet("busFavCities", f);
+  if (acctOn) cloudWrite({ favCities: f.map(c => ({ code: String(c.code), name: String(c.name), prov: String(c.prov) })) });
+};
 
 // 광역시·도 + 시·군·구 한 쌍의 선택 상자를 채움
 function bindPicker(pEl, cEl, blank) {
@@ -715,9 +727,17 @@ async function startAcct(user) {
   lastSig = "";
   const ref = FB.doc(FB.db, "accounts", user.uid);
   const snap = await FB.getDoc(ref);
+  const localFavStops = ls("busFavs", []).map(stopOut);
+  const localFavCities = ls("busFavCities", []).map(c => ({ code: String(c.code), name: String(c.name), prov: String(c.prov) }));
   if (!snap.exists()) {           // 처음 로그인: 이 기기의 현재 설정을 계정에 올림
     await FB.setDoc(ref, { buses: CFG.buses || "", min: Number(CFG.min) || 5, on: !!CFG.on,
-      vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60, updatedAt: FB.serverTimestamp() });
+      vib: !!CFG.vib, rep: Number(CFG.rep) || 1, gap: Number(CFG.gap) || 60,
+      favStops: localFavStops, favCities: localFavCities, updatedAt: FB.serverTimestamp() });
+  } else {                        // 계정에 아직 없는 항목만 이 기기 것으로 채움
+    const d = snap.data(), add = {};
+    if (!Array.isArray(d.favStops) && localFavStops.length) add.favStops = localFavStops;
+    if (!Array.isArray(d.favCities) && localFavCities.length) add.favCities = localFavCities;
+    if (Object.keys(add).length) await FB.setDoc(ref, { ...add, updatedAt: FB.serverTimestamp() }, { merge: true });
   }
   unsubA = FB.onSnapshot(ref, s => { if (s.exists()) applyRemote(s.data()); },
     e => famMsg("설정을 불러올 수 없습니다. " + errText(e), true));
@@ -818,7 +838,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.marginTop = ".6rem";
-  v.textContent = "화면 버전 v10 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "화면 버전 v11 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   $("settings").appendChild(v);
 }
 renderFavs();

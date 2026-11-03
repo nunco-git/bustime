@@ -7,13 +7,15 @@ service cloud.firestore {
     match /accounts/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow create, update: if request.auth != null && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['buses', 'min', 'on', 'vib', 'rep', 'gap', 'stop', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['buses', 'min', 'on', 'vib', 'rep', 'gap', 'stop', 'favStops', 'favCities', 'updatedAt'])
         && (!('buses' in request.resource.data) || (request.resource.data.buses is string && request.resource.data.buses.size() <= 100))
         && (!('min' in request.resource.data) || (request.resource.data.min is number && request.resource.data.min >= 1 && request.resource.data.min <= 60))
         && (!('on' in request.resource.data) || request.resource.data.on is bool)
         && (!('vib' in request.resource.data) || request.resource.data.vib is bool)
         && (!('rep' in request.resource.data) || (request.resource.data.rep is number && request.resource.data.rep >= 1 && request.resource.data.rep <= 20))
         && (!('gap' in request.resource.data) || (request.resource.data.gap is number && request.resource.data.gap >= 10 && request.resource.data.gap <= 600))
+        && (!('favStops' in request.resource.data) || (request.resource.data.favStops is list && request.resource.data.favStops.size() <= 50))
+        && (!('favCities' in request.resource.data) || (request.resource.data.favCities is list && request.resource.data.favCities.size() <= 3))
         && (!('stop' in request.resource.data) || request.resource.data.stop is map);
       allow delete: if false;
     }
