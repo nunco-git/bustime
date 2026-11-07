@@ -460,6 +460,14 @@ function dirPart(next, last) {
   if (last === "종점") return "종점";
   return next && next !== last ? next + " → " + last : last;
 }
+// 남은 시간(초). 값이 없거나, 정류장이 5개 넘게 남았는데 1분 이하처럼 앞뒤가 안 맞으면 모르는 것(null)으로 봄
+function arrSec(b) {
+  if (b.arrtime == null || b.arrtime === "") return null;
+  const s = Number(b.arrtime), n = Number(b.arrprevstationcnt);
+  if (isNaN(s) || s < 0) return null;
+  if (s <= 60 && n >= 5) return null;
+  return s;
+}
 function dirText(names, nexts) {
   if (!names || !names.length) return "";
   if (names[0] === "종점") return "종점";
@@ -722,7 +730,7 @@ function checkAlerts(items) {
     const bc = busCfgOf(b.routeno), limit = bc.min * 60, total = bc.rep, gapMs = bc.gap * 1000;
     const key = prefix + norm(b.routeno);
     seen.add(key);
-    const sec = Number(b.arrtime ?? 1e9);
+    const sec = arrSec(b) ?? 1e9;
     if (sec <= limit) {
       const a = announced[key] || { n: 0, t: 0 };
       if (a.n < total && (a.n === 0 || now - a.t >= gapMs - 5000)) {
@@ -1212,14 +1220,14 @@ async function loadArrivals() {
     if (st !== current) return;
     if (!items.length) { $("arrivals").innerHTML = `<div class="msg">현재 도착 예정 버스가 없습니다.</div>`; }
     else {
-      items.sort((a, b) => (a.arrtime ?? 1e9) - (b.arrtime ?? 1e9));
+      items.sort((a, b) => (arrSec(a) ?? 1e9) - (arrSec(b) ?? 1e9) || (Number(a.arrprevstationcnt) || 1e9) - (Number(b.arrprevstationcnt) || 1e9));
       const wanted = alertCfg().on ? String(alertCfg().buses).split(",").map(norm).filter(Boolean) : [];
       $("arrivals").innerHTML = items.map(b => {
-        const m = Math.floor((b.arrtime ?? 0) / 60);
+        const sc = arrSec(b), m = sc == null ? null : Math.floor(sc / 60);
         const w = wanted.includes(norm(b.routeno)) ? " watch" : "";
         const mine = alarmOn(b.routeno);
         return `<div class="bus${w}"><div class="bl"><div class="bt"><span class="no">${b.routeno}</span> <small>${b._cn && twinList(current).length ? b._cn + " · " : ""}${b.routetp ?? ""}</small>
-            <span class="min">${m <= 1 ? "곧 도착" : m + "분"} <small>${b.arrprevstationcnt ?? "-"}정류장 전</small></span></div>
+            <span class="min">${m == null ? "" : (m <= 1 ? "곧 도착" : m + "분") + " "}<small>${b.arrprevstationcnt ?? "-"}정류장 전${m == null ? " (시간 정보 없음)" : ""}</small></span></div>
             <div class="bb"><button class="${mine ? "" : "ghost"}" data-alarm="${escH(b.routeno)}">${mine ? "🔔 알람 켜짐" : "🔔 알람 설정"}</button>${b.routeid ? `<button class="ghost" data-route="${escH(b.routeid)}" data-routeno="${escH(b.routeno)}" data-rcity="${escH(b._cc || "")}">📍 버스 위치</button>` : ""}</div></div></div>`;
       }).join("");
     }
@@ -1576,7 +1584,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v45 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v46 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
