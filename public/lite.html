@@ -51,6 +51,7 @@
     <div class="card">
       <div class="big" id="stopName">정류장을 정해 주세요</div>
       <div class="dir" id="stopDir"></div>
+      <div class="dir" id="stopTwin"></div>
       <div id="arr"></div>
       <div class="sub" id="upd"></div>
       <button id="refresh">새로고침</button>
@@ -181,7 +182,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v16 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v17 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -276,9 +277,18 @@ function sameStop(a, b) { return !!(a && b && String(a.nodeid) === String(b.node
 function sig() { return JSON.stringify([CFG.on, CFG.buses, CFG.min, CFG.hear, CFG.vib, CFG.rep, CFG.gap, CFG.stop && stopKey(CFG.stop), CFG.bset, CFG.sched]); }
 function favs() { return ls("busFavs", []); }
 function stopOut(s) {
-  return { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
+  var o = { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
     nodenm: String(s.nodenm), nodeno: String(s.nodeno == null ? "" : s.nodeno) };
+  if (s.twins && Object.prototype.toString.call(s.twins) === "[object Array]") {
+    o.twins = [];
+    for (var i = 0; i < s.twins.length && i < 3; i++) o.twins.push(twinOut(s.twins[i]));
+  }
+  return o;
 }
+function twinOut(t) {
+  return { cityCode: String(t.cityCode), cityName: String(t.cityName || ""), nodeid: String(t.nodeid), nodeno: String(t.nodeno == null ? "" : t.nodeno) };
+}
+function twinList(st) { return st && st.twins && Object.prototype.toString.call(st.twins) === "[object Array]" ? st.twins : []; }
 function saveFavs(f) {
   lsSet("busFavs", f);
   var out = f.map(stopOut), keep = true, i;
@@ -387,11 +397,13 @@ function showStop(stop) {
   watchStart = new Date().getTime();
   $("stopName").textContent = stop.nodenm;
   $("stopDir").textContent = "";
+  paintTwins(stop);
   dirFor(String(stop.cityCode), String(stop.nodeid), function (t) { if (current === stop) $("stopDir").textContent = t ? "→ " + t : ""; });
   $("arr").innerHTML = '<div class="sub">불러오는 중…</div>';
   $("upd").textContent = "";
   clearInterval(timer);
   syncNative();
+  attachTwins(stop);
   loadArrivals();
   timer = setInterval(function () {
     if (new Date().getTime() - watchStart > MAX_WATCH_MIN * 60000) {
@@ -403,12 +415,55 @@ function showStop(stop) {
   }, REFRESH_SEC * 1000);
 }
 
+// 같은 자리의 다른 시·군 정류장(이름 같고 약 100m 이내)을 한 번 찾아 두고, 도착정보를 합쳐서 보여 줌
+function cityNameOf(code) {
+  var o = $("city").options, i;
+  for (i = 0; i < o.length; i++) if (o[i].value === String(code)) return o[i].text;
+  return "";
+}
+function paintTwins(st) {
+  var t = twinList(st), n = [], i;
+  for (i = 0; i < t.length; i++) n.push(t[i].cityName || "다른 시·군");
+  $("stopTwin").textContent = t.length ? "같은 자리 " + n.join(", ") + " 정류장과 함께 표시" : "";
+}
+function attachTwins(stop) {
+  if (stop.twins && Object.prototype.toString.call(stop.twins) === "[object Array]") return;
+  call("twins", { cityCode: stop.cityCode, nodeid: stop.nodeid, nodenm: stop.nodenm }, function (err, items) {
+    if (err) return;                          // 못 찾았으면 이번엔 건너뛰고 다음에 다시 시도
+    var t = [], i, f, k;
+    for (i = 0; i < items.length; i++) { items[i].cityName = cityNameOf(items[i].cityCode); t.push(twinOut(items[i])); }
+    stop.twins = t;
+    f = favs();
+    for (i = 0; i < f.length; i++) if (sameStop(f[i], stop)) { k = f[i]; break; }
+    if (k && !k.twins) { k.twins = t; saveFavs(f); }
+    if (current === stop) { paintTwins(stop); if (t.length) loadArrivals(); }
+  });
+}
+
 function loadArrivals() {
   if (!current) return;
-  var st = current;
+  var st = current, tw = twinList(st);
   call("arrivals", { cityCode: st.cityCode, nodeId: st.nodeid }, function (err, items) {
     if (st !== current) return;
     if (err) { $("arr").innerHTML = '<div class="err">' + esc(err.message) + "</div>"; return; }
+    if (tw.length) { mergeTwins(st, tw, items); return; }
+    showArr(st, items);
+  });
+}
+function mergeTwins(st, tw, items) {
+  var i, left = tw.length;
+  for (i = 0; i < items.length; i++) items[i]._cn = st.cityName;
+  function one(t) {
+    call("arrivals", { cityCode: t.cityCode, nodeId: t.nodeid }, function (e2, r) {
+      var j;
+      if (!e2) for (j = 0; j < r.length; j++) { r[j]._cn = t.cityName; items.push(r[j]); }
+      if (--left === 0 && st === current) showArr(st, items);
+    });
+  }
+  for (i = 0; i < tw.length; i++) one(tw[i]);
+}
+function showArr(st, items) {
+  {
     if (!items.length) { $("arr").innerHTML = '<div class="sub">현재 도착 예정 버스가 없습니다.</div>'; }
     else {
       items.sort(function (a, b) { return (a.arrtime == null ? 1e9 : a.arrtime) - (b.arrtime == null ? 1e9 : b.arrtime); });
@@ -418,14 +473,14 @@ function loadArrivals() {
         b = items[i];
         m = Math.floor((b.arrtime || 0) / 60);
         w = wanted.indexOf(norm(b.routeno)) >= 0 && sameStop(CFG.stop, st);
-        html += '<div class="bus' + (w ? " watch" : "") + '"><div><span class="no">' + esc(b.routeno) + "</span>" + (w ? " 🔔" : "") + "</div>" +
+        html += '<div class="bus' + (w ? " watch" : "") + '"><div><span class="no">' + esc(b.routeno) + "</span>" + (w ? " 🔔" : "") + (b._cn && twinList(st).length ? ' <span class="sub">' + esc(b._cn) + "</span>" : "") + "</div>" +
           '<div class="min">' + (m <= 1 ? "곧 도착" : m + "분") + '<br><span class="sub">' + esc(b.arrprevstationcnt == null ? "-" : b.arrprevstationcnt) + "정류장 전</span></div>" +
           '<div style="width:100%"><button data-alarm="' + esc(b.routeno).replace(/"/g, "&quot;") + '"' + (w ? "" : ' class="g"') + ">" + (w ? "🔔 알람 켜짐" : "🔔 알람 설정") + "</button></div></div>";
       }
       $("arr").innerHTML = html;
     }
     $("upd").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
-  });
+  }
 }
 
 var amBus = null;

@@ -102,6 +102,43 @@ async function stopDirsOf(cityCode, nodeId) {
   return out;
 }
 
+// ---- 같은 자리의 다른 시·군 정류장 찾기 (이름이 같고 약 100m 이내) ----
+// 괄호 설명은 지우되, 방향을 뜻하는 괄호(건너편·맞은편·방면 등)는 남겨 반대편 정류장과 섞이지 않게 함
+const normNm = s => String(s || "").replace(/\([^)]*\)|\[[^\]]*\]/g, m => /건너|맞은|반대|방면|행|상행|하행|내선|외선/.test(m) ? m : "").replace(/[\s·.\-_]/g, "").toLowerCase();
+function meters(la1, lo1, la2, lo2) {
+  const R = 6371000, r = Math.PI / 180;
+  const dLa = (la2 - la1) * r, dLo = (lo2 - lo1) * r;
+  const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+async function twinsOf(cityCode, nodeId, nodeNm) {
+  const key = "tw|" + cityCode + "|" + nodeId;
+  const hit = dirCache.get(key);
+  if (hit && Date.now() - hit.t < DIR_TTL) return hit.v;
+  // 1) 이 정류장의 좌표를 이름 검색으로 찾는다
+  const found = asItems(await tagoJson("BusSttnInfoInqireService/getSttnNoList", { cityCode, nodeNm }, 100))
+    .find(x => String(x.nodeid) === String(nodeId));
+  if (!found) throw new Error("정류장 좌표를 찾지 못했습니다");
+  const la = Number(found.gpslati), lo = Number(found.gpslong);
+  if (isNaN(la) || isNaN(lo)) throw new Error("정류장 좌표가 없습니다");
+  // 2) 주변 정류장 중 다른 시·군 것에서 같은 이름을 고른다
+  const me = normNm(nodeNm || found.nodenm);
+  const out = [];
+  for (const x of asItems(await tagoJson("BusSttnInfoInqireService/getCrdntPrxmtSttnList", { gpsLati: la, gpsLong: lo }, 100))) {
+    const cc = x.citycode == null ? "" : String(x.citycode);
+    if (!cc || cc === String(cityCode)) continue;
+    const d = meters(la, lo, Number(x.gpslati), Number(x.gpslong));
+    if (isNaN(d)) continue;
+    const nm = normNm(x.nodenm);
+    const same = nm === me || (d <= 40 && nm && me && !/[(\[]/.test(String(x.nodenm) + String(nodeNm)) && (nm.includes(me) || me.includes(nm)));
+    if (same && d <= 100) out.push({ cityCode: cc, nodeid: String(x.nodeid), nodenm: String(x.nodenm), nodeno: String(x.nodeno == null ? "" : x.nodeno), dist: Math.round(d) });
+  }
+  out.sort((a, b) => a.dist - b.dist);
+  const v = out.slice(0, 3);
+  dirCache.set(key, { t: Date.now(), v });
+  return v;
+}
+
 exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: true }, async (req, res) => {
   const opName = String(req.query.op);
   if (opName === "direction") {
@@ -114,6 +151,18 @@ exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: 
     } catch (e) {
       console.error("direction 실패", e);
       return res.json({ response: { header: { resultCode: "99", resultMsg: "방면 정보를 가져오지 못했습니다" } } });
+    }
+  }
+  if (opName === "twins") {
+    const cityCode = String(req.query.cityCode || ""), nodeId = String(req.query.nodeid || ""), nodeNm = String(req.query.nodenm || "");
+    res.set("Cache-Control", "no-store");
+    if (!cityCode || !nodeId || !nodeNm) return res.status(400).json({ error: "cityCode, nodeid, nodenm 필요" });
+    try {
+      const items = await twinsOf(cityCode, nodeId, nodeNm);
+      return res.json({ response: { header: { resultCode: "00" }, body: { items: items.length ? { item: items } : "" } } });
+    } catch (e) {
+      console.error("twins 실패", e);
+      return res.json({ response: { header: { resultCode: "99", resultMsg: "다른 시·군 정류장을 찾지 못했습니다" } } });
     }
   }
   if (opName === "stopDirs") {

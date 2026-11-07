@@ -249,7 +249,7 @@ window.fbPromise = new Promise((res, rej) => { window.__fbRes = res; window.__fb
 
   <div class="card" id="arrBox" style="display:none">
     <div class="row" style="justify-content:space-between">
-      <div><b id="arrTitle"></b><div class="dir" id="arrDir"></div></div>
+      <div><b id="arrTitle"></b><div class="dir" id="arrDir"></div><div class="dir" id="arrTwin"></div></div>
       <button class="ghost" id="refresh">새로고침</button>
     </div>
     <div id="arrivals"></div>
@@ -512,8 +512,13 @@ function setScale(s, fromRemote) {
 }
 
 const favs = () => ls("busFavs", []);
-const stopOut = s => ({ cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
-  nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? "") });
+const twinOut = t => ({ cityCode: String(t.cityCode), cityName: String(t.cityName || ""), nodeid: String(t.nodeid), nodeno: String(t.nodeno ?? "") });
+const stopOut = s => {
+  const o = { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
+    nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? "") };
+  if (Array.isArray(s.twins)) o.twins = s.twins.slice(0, 3).map(twinOut);   // 같은 자리의 다른 시·군 정류장 (도착정보를 합쳐서 보여 줌)
+  return o;
+};
 const saveFavs = f => {
   lsSet("busFavs", f);
   const out = f.map(stopOut);
@@ -1075,6 +1080,7 @@ async function showArrivals(stop) {
   $("arrBox").style.display = "";
   $("arrTitle").textContent = stop.nodenm;
   $("arrDir").textContent = "";
+  paintTwins(stop);
   dirFor(String(stop.cityCode), String(stop.nodeid), t => { if (current === stop) $("arrDir").textContent = t ? "→ " + t : ""; });
   $("arrivals").innerHTML = `<div class="msg">불러오는 중…</div>`;
   $("updated").textContent = "";
@@ -1082,6 +1088,7 @@ async function showArrivals(stop) {
   clearInterval(timer);
   keepAwake();
   syncNative();
+  attachTwins(stop);
   await loadArrivals();
   timer = setInterval(() => {
     if (Date.now() - watchStart > MAX_WATCH_MIN * 60000) {
@@ -1091,6 +1098,27 @@ async function showArrivals(stop) {
     }
     loadArrivals();
   }, REFRESH_SEC * 1000);
+}
+
+// 같은 자리의 다른 시·군 정류장(이름 같고 약 100m 이내)을 한 번 찾아 두고, 도착정보를 합쳐서 보여 줌
+const twinList = st => (st && Array.isArray(st.twins) ? st.twins : []);
+function paintTwins(st) {
+  const t = twinList(st);
+  $("arrTwin").textContent = t.length ? "같은 자리 " + t.map(x => x.cityName || "다른 시·군").join(", ") + " 정류장과 함께 표시" : "";
+}
+async function attachTwins(stop) {
+  if (Array.isArray(stop.twins)) return;
+  let t;
+  try {
+    const items = await call("twins", { cityCode: stop.cityCode, nodeid: stop.nodeid, nodenm: stop.nodenm });
+    t = items.map(x => twinOut({ ...x, cityName: (cityList.find(c => c.code === String(x.cityCode)) || {}).name || "" }));
+  } catch (e) { return; }                     // 못 찾았으면 이번엔 건너뛰고 다음에 다시 시도
+  stop.twins = t;
+  if (isFav(stop)) {
+    const f = favs(), k = f.find(x => sameStop(x, stop));
+    if (k && !Array.isArray(k.twins)) { k.twins = t; saveFavs(f); }
+  }
+  if (current === stop) { paintTwins(stop); if (t.length) loadArrivals(); }
 }
 
 let amBus = null, am = { voice: true, vib: true };
@@ -1164,7 +1192,15 @@ function alarmBus(no, o) {
 async function loadArrivals() {
   if (!current) return;
   try {
-    const items = await call("arrivals", { cityCode: current.cityCode, nodeId: current.nodeid });
+    const st = current, tw = twinList(st);
+    let items = await call("arrivals", { cityCode: st.cityCode, nodeId: st.nodeid });
+    if (tw.length) {
+      items.forEach(b => { b._cn = st.cityName; });
+      const rest = await Promise.all(tw.map(t => call("arrivals", { cityCode: t.cityCode, nodeId: t.nodeid })
+        .then(r => r.map(b => ({ ...b, _cn: t.cityName, _cc: t.cityCode }))).catch(() => [])));
+      items = items.concat(...rest);
+    }
+    if (st !== current) return;
     if (!items.length) { $("arrivals").innerHTML = `<div class="msg">현재 도착 예정 버스가 없습니다.</div>`; }
     else {
       items.sort((a, b) => (a.arrtime ?? 1e9) - (b.arrtime ?? 1e9));
@@ -1173,9 +1209,9 @@ async function loadArrivals() {
         const m = Math.floor((b.arrtime ?? 0) / 60);
         const w = wanted.includes(norm(b.routeno)) ? " watch" : "";
         const mine = alarmOn(b.routeno);
-        return `<div class="bus${w}"><div class="bl"><div class="bt"><span class="no">${b.routeno}</span> <small>${b.routetp ?? ""}</small>
+        return `<div class="bus${w}"><div class="bl"><div class="bt"><span class="no">${b.routeno}</span> <small>${b._cn && twinList(current).length ? b._cn + " · " : ""}${b.routetp ?? ""}</small>
             <span class="min">${m <= 1 ? "곧 도착" : m + "분"} <small>${b.arrprevstationcnt ?? "-"}정류장 전</small></span></div>
-            <div class="bb"><button class="${mine ? "" : "ghost"}" data-alarm="${escH(b.routeno)}">${mine ? "🔔 알람 켜짐" : "🔔 알람 설정"}</button>${b.routeid ? `<button class="ghost" data-route="${escH(b.routeid)}" data-routeno="${escH(b.routeno)}">📍 버스 위치</button>` : ""}</div></div></div>`;
+            <div class="bb"><button class="${mine ? "" : "ghost"}" data-alarm="${escH(b.routeno)}">${mine ? "🔔 알람 켜짐" : "🔔 알람 설정"}</button>${b.routeid ? `<button class="ghost" data-route="${escH(b.routeid)}" data-routeno="${escH(b.routeno)}" data-rcity="${escH(b._cc || "")}">📍 버스 위치</button>` : ""}</div></div></div>`;
       }).join("");
     }
     $("updated").textContent = "갱신 " + new Date().toLocaleTimeString("ko-KR") + " (" + REFRESH_SEC + "초마다 자동)";
@@ -1186,8 +1222,9 @@ async function loadArrivals() {
 /* ================= 노선·버스 위치 ================= */
 let routeSel = null, routeTimer = null, routeStopsCache = {};
 
-async function showRoute(routeid, routeno) {
-  routeSel = { routeid: String(routeid), routeno: String(routeno), cityCode: current.cityCode, nodeid: String(current.nodeid), nodenm: current.nodenm };
+async function showRoute(routeid, routeno, rcity) {
+  const tw = rcity ? twinList(current).find(t => String(t.cityCode) === String(rcity)) : null;   // 다른 시·군 정류장 쪽 버스면 그쪽 정류장 기준
+  routeSel = { routeid: String(routeid), routeno: String(routeno), cityCode: tw ? tw.cityCode : current.cityCode, nodeid: String(tw ? tw.nodeid : current.nodeid), nodenm: current.nodenm };
   $("routeBox").style.display = "";
   $("routeTitle").textContent = busLabel(routeno).replace("버스", "노선");
   $("routeSummary").textContent = "";
@@ -1505,7 +1542,7 @@ $("muteToggle").onclick = () => { lsSet("muteHere", !ls("muteHere", false)); ren
 
 document.addEventListener("click", e => {
   const bt = e.target.closest("button[data-route]");
-  if (bt && current) showRoute(bt.dataset.route, bt.dataset.routeno);
+  if (bt && current) showRoute(bt.dataset.route, bt.dataset.routeno, bt.dataset.rcity);
 });
 document.addEventListener("click", e => {
   const el = e.target.closest("[data-stn]");
@@ -1530,7 +1567,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v41 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v42 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
