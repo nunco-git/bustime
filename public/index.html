@@ -594,7 +594,11 @@ function homeOpts(s) {
 }
 function renderFavs() {
   const cc = $("city").value;          // 지금 선택한 시·군의 즐겨찾기만 표시 (시·군 목록이 아직 없으면 전체)
-  const rows = favs().map((s, i) => ({ s, i })).filter(x => !cc || favHome(x.s) === String(cc));
+  const all = favs();
+  // 같은 자리 정류장이 따로 담겨 있으면 앞에 담긴 쪽(묶음을 가진 쪽) 하나만 보여 줌 (삭제하지는 않음)
+  const covered = (s, i) => all.some((o, j) => j < i && twinList(o).some(t => String(t.cityCode) === String(s.cityCode) && String(t.nodeid) === String(s.nodeid)))
+    || all.some((o, j) => j > i && twinList(o).length && twinList(o).some(t => String(t.cityCode) === String(s.cityCode) && String(t.nodeid) === String(s.nodeid)) && !twinList(s).length);
+  const rows = all.map((s, i) => ({ s, i })).filter(x => !covered(x.s, x.i)).filter(x => !cc || favHome(x.s) === String(cc));
   $("favBox").style.display = rows.length ? "" : "none";
   const cn = rows.length && $("city").selectedOptions[0] ? $("city").selectedOptions[0].text : "";
   $("favTitle").textContent = cn ? `즐겨찾기 (${cn})` : "즐겨찾기";
@@ -1653,7 +1657,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v49 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v50 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
