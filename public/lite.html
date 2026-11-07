@@ -182,7 +182,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v19 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v20 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -230,10 +230,10 @@ function call(op, params, cb) {
 
 /* ---------- 'OO 방면' 표시 ---------- */
 var dirCache = {}, dirQueue = [], dirBusy = false;
-// 다음 정류장과 종점을 같이: "다음 ○○ · 종점 △△" (바로 다음이 종점이면 "다음이 종점 △△")
+// 방면 앞에 다음 정류장 이름: "○○ → △△ 방면" (다음이 곧 종점이거나 모르면 "△△")
 function dirPart(next, last) {
   if (last === "종점") return "종점";
-  return next ? (next === last ? "다음이 종점 " + last : "다음 " + next + " · 종점 " + last) : "종점 " + last;
+  return next && next !== last ? next + " → " + last : last;
 }
 function dirParts(dests, nexts) {
   var o = [], i;

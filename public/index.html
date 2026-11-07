@@ -455,10 +455,10 @@ const famMsg = (t, err) => { const m = $("famMsg"); m.textContent = t || ""; m.c
 /* ---- 'OO 방면' 표시 ---- */
 const dirCache = {};            // "도시:정류장ID" -> 표시 문구
 let dirQueue = [], dirBusy = false;
-// 다음 정류장과 종점을 같이: "다음 ○○ · 종점 △△" (바로 다음이 종점이면 "다음이 종점 △△")
+// 방면 앞에 다음 정류장 이름: "○○ → △△ 방면" (다음이 곧 종점이거나 모르면 "△△")
 function dirPart(next, last) {
   if (last === "종점") return "종점";
-  return next ? (next === last ? "다음이 종점 " + last : "다음 " + next + " · 종점 " + last) : "종점 " + last;
+  return next && next !== last ? next + " → " + last : last;
 }
 function dirText(names, nexts) {
   if (!names || !names.length) return "";
@@ -1576,7 +1576,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v44 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v45 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
