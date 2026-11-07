@@ -455,9 +455,15 @@ const famMsg = (t, err) => { const m = $("famMsg"); m.textContent = t || ""; m.c
 /* ---- 'OO 방면' 표시 ---- */
 const dirCache = {};            // "도시:정류장ID" -> 표시 문구
 let dirQueue = [], dirBusy = false;
-function dirText(names) {
+// 다음 정류장과 종점을 같이: "다음 ○○ · 종점 △△" (바로 다음이 종점이면 "다음이 종점 △△")
+function dirPart(next, last) {
+  if (last === "종점") return "종점";
+  return next ? (next === last ? "다음이 종점 " + last : "다음 " + next + " · 종점 " + last) : "종점 " + last;
+}
+function dirText(names, nexts) {
   if (!names || !names.length) return "";
-  return names[0] === "종점" ? "종점" : names.join(" · ") + " 방면";
+  if (names[0] === "종점") return "종점";
+  return names.map((n, i) => dirPart(nexts && nexts[i], n)).join(" / ") + " 방면";
 }
 function dirFor(cityCode, nodeId, cb) {
   const k = cityCode + ":" + nodeId;
@@ -471,7 +477,7 @@ function dirFor(cityCode, nodeId, cb) {
       if (j.k in dirCache) { j.cb(dirCache[j.k]); continue; }
       try {
         const it = await call("direction", { cityCode: j.cityCode, nodeId: j.nodeId });
-        dirCache[j.k] = dirText(it[0] && it[0].names);
+        dirCache[j.k] = dirText(it[0] && it[0].names, it[0] && it[0].nexts);
       } catch { dirCache[j.k] = ""; }
       j.cb(dirCache[j.k]);
     }
@@ -990,7 +996,7 @@ async function fetchRoutes(stop) {
     try { items = await call("stopDirs", { cityCode: stop.cityCode, nodeid: stop.nodeid }); }
     catch { items = await call("stopRoutes", { cityCode: stop.cityCode, nodeid: stop.nodeid }); }   // 방면 계산이 안 되면 번호만
     const seen = {}, list = [];
-    items.forEach(x => { const no = String(x.routeno); if (!seen[no]) { seen[no] = 1; list.push({ no, dir: (x.dests || []).slice(0, 2).join("·") }); } });
+    items.forEach(x => { const no = String(x.routeno); if (!seen[no]) { seen[no] = 1; list.push({ no, dir: (x.dests || []).slice(0, 2).map((d, i) => dirPart((x.nexts || [])[i], d)).join(" / ") }); } });
     list.sort((a, b) => (parseInt(a.no, 10) || 1e9) - (parseInt(b.no, 10) || 1e9) || (a.no < b.no ? -1 : 1));
     routeCache[k] = list;
   } catch (e) { routeCache[k] = "error:" + e.message; }
@@ -1570,7 +1576,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v43 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v44 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

@@ -182,7 +182,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v18 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v19 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -230,16 +230,26 @@ function call(op, params, cb) {
 
 /* ---------- 'OO 방면' 표시 ---------- */
 var dirCache = {}, dirQueue = [], dirBusy = false;
-function dirText(names) {
+// 다음 정류장과 종점을 같이: "다음 ○○ · 종점 △△" (바로 다음이 종점이면 "다음이 종점 △△")
+function dirPart(next, last) {
+  if (last === "종점") return "종점";
+  return next ? (next === last ? "다음이 종점 " + last : "다음 " + next + " · 종점 " + last) : "종점 " + last;
+}
+function dirParts(dests, nexts) {
+  var o = [], i;
+  for (i = 0; i < dests.length && i < 2; i++) o.push(dirPart(nexts && nexts[i], dests[i]));
+  return o.join(" / ");
+}
+function dirText(names, nexts) {
   if (!names || !names.length) return "";
-  return names[0] === "종점" ? "종점" : names.join(" · ") + " 방면";
+  return names[0] === "종점" ? "종점" : dirParts(names, nexts) + " 방면";
 }
 function dirNext() {
   var j = dirQueue.shift();
   if (!j) { dirBusy = false; return; }
   if (dirCache.hasOwnProperty(j.k)) { j.cb(dirCache[j.k]); return dirNext(); }
   call("direction", { cityCode: j.c, nodeId: j.n }, function (err, it) {
-    dirCache[j.k] = err ? "" : dirText(it && it[0] && it[0].names);
+    dirCache[j.k] = err ? "" : dirText(it && it[0] && it[0].names, it && it[0] && it[0].nexts);
     j.cb(dirCache[j.k]);
     dirNext();
   });
@@ -617,7 +627,7 @@ fetchRoutes.done = function (k, err, items) {
     if (err) routeCache[k] = "error:" + err.message;
     else {
       var seen = {}, list = [], i, no;
-      for (i = 0; i < items.length; i++) { no = String(items[i].routeno); if (!seen[no]) { seen[no] = 1; list.push({ no: no, dir: (items[i].dests || []).slice(0, 2).join("·") }); } }
+      for (i = 0; i < items.length; i++) { no = String(items[i].routeno); if (!seen[no]) { seen[no] = 1; list.push({ no: no, dir: dirParts(items[i].dests || [], items[i].nexts) }); } }
       list.sort(function (a, b) { return (parseInt(a.no, 10) || 1e9) - (parseInt(b.no, 10) || 1e9) || (a.no < b.no ? -1 : 1); });
       routeCache[k] = list;
     }

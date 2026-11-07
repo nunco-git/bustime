@@ -54,7 +54,7 @@ async function directionOf(cityCode, nodeId) {
   const hit = dirCache.get(key);
   if (hit && Date.now() - hit.t < DIR_TTL) return hit.v;
   const routes = asItems(await tagoJson("BusSttnInfoInqireService/getSttnThrghRouteList", { cityCode, nodeid: nodeId })).slice(0, 3);
-  const counts = {};
+  const counts = {}, nextBy = {};
   await Promise.all(routes.map(async r => {
     const st = await routeStopsCached(cityCode, r.routeid);
     for (const m of st.filter(x => x.id === nodeId)) {
@@ -63,11 +63,24 @@ async function directionOf(cityCode, nodeId) {
       const last = same.reduce((a, b) => (b.ord > a.ord ? b : a));
       const name = last.id === nodeId ? "종점" : last.nm;
       counts[name] = (counts[name] || 0) + 1;
+      const nx = nextStopOf(st, m);
+      if (nx && name !== "종점") (nextBy[name] = nextBy[name] || {})[nx.nm] = ((nextBy[name] || {})[nx.nm] || 0) + 1;
     }
   }));
   const names = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(e => e[0]).slice(0, 2);
-  if (names.length) dirCache.set(key, { t: Date.now(), v: names });
-  return names;
+  const nexts = names.map(n => {                       // 같은 종점이라도 다음 정류장이 갈리면 가장 많은 쪽
+    const c = nextBy[n] || {}, k = Object.keys(c).sort((a, b) => c[b] - c[a])[0];
+    return k || "";
+  });
+  const v = { names, nexts };
+  if (names.length) dirCache.set(key, { t: Date.now(), v });
+  return v;
+}
+// 같은 방향(updowncd)에서 이 정류장 바로 다음 정류장
+function nextStopOf(st, m) {
+  let best = null;
+  for (const x of st) if (x.ud === m.ud && x.ord > m.ord && (!best || x.ord < best.ord)) best = x;
+  return best;
 }
 
 // 정류장을 지나는 버스별 방면(이 정류장에서 타면 가는 방향). 이 정류장이 종점인 노선(탈 수 없음)은 뺀다.
@@ -77,11 +90,11 @@ async function stopDirsOf(cityCode, nodeId) {
   if (hit && Date.now() - hit.t < DIR_TTL) return hit.v;
   const all = asItems(await tagoJson("BusSttnInfoInqireService/getSttnThrghRouteList", { cityCode, nodeid: nodeId }));
   const routes = all.slice(0, 25);
-  const out = all.slice(25).map(r => ({ routeno: String(r.routeno), dests: [] }));   // 계산 한도를 넘은 노선도 번호는 보여 줌
+  const out = all.slice(25).map(r => ({ routeno: String(r.routeno), dests: [], nexts: [] }));   // 계산 한도를 넘은 노선도 번호는 보여 줌
 
   let failed = 0;
   await Promise.all(routes.map(async r => {
-    let dests = [], onlyTerminal = false;
+    let dests = [], nexts = [], onlyTerminal = false;
     try {
       const st = await routeStopsCached(cityCode, r.routeid);
       const ms = st.filter(x => x.id === nodeId);
@@ -91,12 +104,12 @@ async function stopDirsOf(cityCode, nodeId) {
         if (!same.length) continue;
         const last = same.reduce((a, b) => (b.ord > a.ord ? b : a));
         if (last.id === nodeId) term++;
-        else if (!dests.includes(last.nm)) dests.push(last.nm);
+        else if (!dests.includes(last.nm)) { dests.push(last.nm); const nx = nextStopOf(st, m); nexts.push(nx ? nx.nm : ""); }
       }
       onlyTerminal = ms.length > 0 && term === ms.length;     // 이 정류장이 해당 노선의 종점일 때
     } catch (e) { failed++; }
-    if (onlyTerminal) dests = ["종점"];       // 빼지 않고 '종점'으로 표시 (도착정보에는 나오므로 목록에서도 고를 수 있어야 함)
-    out.push({ routeno: String(r.routeno), dests });
+    if (onlyTerminal) { dests = ["종점"]; nexts = [""]; }       // 빼지 않고 '종점'으로 표시 (도착정보에는 나오므로 목록에서도 고를 수 있어야 함)
+    out.push({ routeno: String(r.routeno), dests, nexts });
   }));
   if (out.length && !failed) dirCache.set(key, { t: Date.now(), v: out });
   return out;
@@ -147,8 +160,8 @@ exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: 
     res.set("Cache-Control", "no-store");
     if (!cityCode || !nodeId) return res.status(400).json({ error: "cityCode, nodeId 필요" });
     try {
-      const names = await directionOf(cityCode, nodeId);
-      return res.json({ response: { header: { resultCode: "00" }, body: { items: { item: [{ names }] } } } });
+      const d = await directionOf(cityCode, nodeId);
+      return res.json({ response: { header: { resultCode: "00" }, body: { items: { item: [{ names: d.names, nexts: d.nexts }] } } } });
     } catch (e) {
       console.error("direction 실패", e);
       return res.json({ response: { header: { resultCode: "99", resultMsg: "방면 정보를 가져오지 못했습니다" } } });
