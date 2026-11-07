@@ -182,7 +182,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v21 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v22 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -297,6 +297,7 @@ function favs() { return ls("busFavs", []); }
 function stopOut(s) {
   var o = { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
     nodenm: String(s.nodenm), nodeno: String(s.nodeno == null ? "" : s.nodeno) };
+  if (s.home) o.home = String(s.home);
   if (s.twins && Object.prototype.toString.call(s.twins) === "[object Array]") {
     o.twins = [];
     for (var i = 0; i < s.twins.length && i < 3; i++) o.twins.push(twinOut(s.twins[i]));

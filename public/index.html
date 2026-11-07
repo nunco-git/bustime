@@ -526,10 +526,12 @@ function setScale(s, fromRemote) {
 }
 
 const favs = () => ls("busFavs", []);
+const favHome = s => String(s.home || s.cityCode);   // 즐겨찾기 목록에서 소속으로 보는 시·군 (기본은 정류장 자료의 시·군)
 const twinOut = t => ({ cityCode: String(t.cityCode), cityName: String(t.cityName || ""), nodeid: String(t.nodeid), nodeno: String(t.nodeno ?? "") });
 const stopOut = s => {
   const o = { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
     nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? "") };
+  if (s.home) o.home = String(s.home);       // 즐겨찾기 목록에서 어느 시·군 아래에 둘지 (정류장이 실제 있는 곳)
   if (Array.isArray(s.twins)) o.twins = s.twins.slice(0, 3).map(twinOut);   // 같은 자리의 다른 시·군 정류장 (도착정보를 합쳐서 보여 줌)
   return o;
 };
@@ -543,16 +545,26 @@ const saveFavs = f => {
 };
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
 
+// 즐겨찾기 정류장을 어느 시·군 목록에 둘지 고르는 선택지: 정류장 자료의 시·군, 지금 보는 시·군, 즐겨찾는 시·군
+function homeOpts(s) {
+  const codes = [favHome(s), String(s.cityCode), String($("city").value || ""), ...fcs().map(c => String(c.code))];
+  const seen = {};
+  return codes.filter(c => c && !seen[c] && (seen[c] = 1)).map(c => {
+    const nm = (cityList.find(x => x.code === c) || {}).name || (c === String(s.cityCode) ? s.cityName : c);
+    return `<option value="${c}"${c === favHome(s) ? " selected" : ""}>${nm}</option>`;
+  }).join("");
+}
 function renderFavs() {
   const cc = $("city").value;          // 지금 선택한 시·군의 즐겨찾기만 표시 (시·군 목록이 아직 없으면 전체)
-  const rows = favs().map((s, i) => ({ s, i })).filter(x => !cc || String(x.s.cityCode) === String(cc));
+  const rows = favs().map((s, i) => ({ s, i })).filter(x => !cc || favHome(x.s) === String(cc));
   $("favBox").style.display = rows.length ? "" : "none";
   const cn = rows.length && $("city").selectedOptions[0] ? $("city").selectedOptions[0].text : "";
   $("favTitle").textContent = cn ? `즐겨찾기 (${cn})` : "즐겨찾기";
   if (typeof renderStopSel === "function") renderStopSel();
   setTimeout(() => fillDirs($("favs")), 0);
   $("favs").innerHTML = rows.map(({ s, i }) =>
-    `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small><div class="dir" data-dir="${s.cityCode}:${s.nodeid}"></div></div>
+    `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small><div class="dir" data-dir="${s.cityCode}:${s.nodeid}"></div>
+       <small>목록 시·군 <select class="homeSel" data-home="${i}">${homeOpts(s)}</select></small></div>
      <div class="btns"><button data-fav="${i}">보기</button> <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
 }
 
@@ -942,12 +954,17 @@ async function mapSearch() {
   try {
     const items = await call("nearby", { gpsLati: c[0].toFixed(4), gpsLong: c[1].toFixed(4) });
     E.clear();
+    // 이 주변 정류장이 가장 많이 속한 시·군을 '실제 있는 곳'으로 봄 (다른 시·군 버스만 서는 정류장도 이 지역 목록에 두기 위해)
+    const cnt = {};
+    items.forEach(it => { const c = String(it.citycode ?? ""); if (c) cnt[c] = (cnt[c] || 0) + 1; });
+    const area = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0] || "";
     items.forEach(it => {
       const lat = Number(it.gpslati), lng = Number(it.gpslong);
       if (isNaN(lat) || isNaN(lng)) return;
       const code = String(it.citycode ?? $("city").value);
       const cityName = (cityList.find(x => x.code === code) || {}).name || "";
       const stop = { cityCode: code, cityName, nodeid: String(it.nodeid), nodenm: String(it.nodenm), nodeno: String(it.nodeno ?? "") };
+      if (area && area !== code) stop.home = area;
       E.marker(lat, lng, () => mapPopup(stop));
     });
     $("mapMsg").textContent = items.length ? `정류장 ${items.length}곳 (빨간 동그라미 주변 500m)` : "이 근처에는 정류장이 없습니다. 지도를 움직여 다시 찾아 보세요.";
@@ -966,12 +983,12 @@ function mapPopup(stop) {
     dirFor(stop.cityCode, stop.nodeid, t => { dv.textContent = t ? "→ " + t : ""; });
     const row = box.querySelector(".row");
     const b1 = document.createElement("button"); b1.textContent = "도착정보";
-    b1.onclick = () => { closeMap(); pickCity(stop.cityCode); showArrivals(stop); };
+    b1.onclick = () => { closeMap(); pickCity(favHome(stop)); showArrivals(stop); };
     const b2 = document.createElement("button"); b2.className = fav ? "ghost" : ""; b2.textContent = fav ? "★ 즐겨찾기 해제" : "☆ 즐겨찾기 추가";
     b2.onclick = () => {
       let f = favs();
       if (fav) f = f.filter(x => !(String(x.nodeid) === stop.nodeid && String(x.cityCode) === stop.cityCode));
-      else { f.push(stop); pickCity(stop.cityCode); }
+      else { f.push(stop); pickCity(favHome(stop)); }
       saveFavs(f); renderFavs(); draw();
     };
     row.append(b1, b2);
@@ -1510,8 +1527,18 @@ document.addEventListener("click", e => {
       $("favBox").scrollIntoView && $("favBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
     } else renderStops();
   }
-  if (d.fav != null) showArrivals(favs()[d.fav]);
+  if (d.fav != null) showArrivals(favs()[d.fav]);   // 목록 시·군 선택은 아래 change 처리
   if (d.del != null) { const f = favs(); f.splice(d.del, 1); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
+});
+
+document.addEventListener("change", e => {
+  const sel = e.target.closest && e.target.closest("select[data-home]");
+  if (!sel) return;
+  const f = favs(), s = f[Number(sel.dataset.home)];
+  if (!s) return;
+  s.home = sel.value;
+  saveFavs(f);
+  pickCity(sel.value);       // 그 시·군 목록으로 바로 이동해서 확인할 수 있게
 });
 
 $("gear").onclick = () => {
@@ -1584,7 +1611,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v46 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v47 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
