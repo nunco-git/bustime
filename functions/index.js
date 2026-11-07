@@ -124,16 +124,45 @@ function meters(la1, lo1, la2, lo2) {
   const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin(dLo / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
-async function twinsOf(cityCode, nodeId, nodeNm) {
-  const key = "tw|" + cityCode + "|" + nodeId;
-  const hit = dirCache.get(key);
-  if (hit && Date.now() - hit.t < DIR_TTL) return hit.v;
-  // 1) 이 정류장의 좌표를 이름 검색으로 찾는다
+// 이 정류장의 좌표를 이름 검색으로 찾는다
+async function stopCoord(cityCode, nodeId, nodeNm) {
   const found = asItems(await tagoJson("BusSttnInfoInqireService/getSttnNoList", { cityCode, nodeNm }, 100))
     .find(x => String(x.nodeid) === String(nodeId));
   if (!found) throw new Error("정류장 좌표를 찾지 못했습니다");
   const la = Number(found.gpslati), lo = Number(found.gpslong);
   if (isNaN(la) || isNaN(lo)) throw new Error("정류장 좌표가 없습니다");
+  return { la, lo, nm: found.nodenm };
+}
+// 좌표가 실제로 속한 시·군을 찾는다 (OpenStreetMap 행정구역, 열쇠 없이 가볍게 사용, 결과는 오래 보관)
+const GEO_TTL = 30 * 24 * 60 * 60 * 1000;
+async function locateOf(cityCode, nodeId, nodeNm) {
+  const key = "lc|" + cityCode + "|" + nodeId;
+  const hit = dirCache.get(key);
+  if (hit && Date.now() - hit.t < GEO_TTL) return hit.v;
+  const { la, lo } = await stopCoord(cityCode, nodeId, nodeNm);
+  const gk = "gc|" + la.toFixed(3) + "|" + lo.toFixed(3);       // 가까운 정류장끼리는 같은 결과를 재사용
+  let a = (dirCache.get(gk) || {}).v;
+  if (!a) {
+    const u = new URL("https://nominatim.openstreetmap.org/reverse");
+    u.searchParams.set("format", "jsonv2"); u.searchParams.set("lat", String(la)); u.searchParams.set("lon", String(lo));
+    u.searchParams.set("zoom", "10"); u.searchParams.set("addressdetails", "1"); u.searchParams.set("accept-language", "ko");
+    const r = await fetch(u, { headers: { "User-Agent": "bustime-bus-app/1.0 (elder bus arrival helper)" } });
+    if (!r.ok) throw new Error("위치 조회 실패 " + r.status);
+    const j = await r.json();
+    a = j && j.address;
+    if (!a) throw new Error("위치 정보 없음");
+    dirCache.set(gk, { t: Date.now(), v: a });
+  }
+  const v = { county: a.county || "", city: a.city || a.town || a.municipality || "", district: a.city_district || "", state: a.state || a.province || "" };
+  dirCache.set(key, { t: Date.now(), v });
+  return v;
+}
+async function twinsOf(cityCode, nodeId, nodeNm) {
+  const key = "tw|" + cityCode + "|" + nodeId;
+  const hit = dirCache.get(key);
+  if (hit && Date.now() - hit.t < DIR_TTL) return hit.v;
+  const { la, lo, nm: foundNm } = await stopCoord(cityCode, nodeId, nodeNm);
+  const found = { nodenm: foundNm };
   // 2) 주변 정류장 중 다른 시·군 것에서 같은 이름을 고른다
   const me = normNm(nodeNm || found.nodenm);
   const out = [];
@@ -165,6 +194,18 @@ exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: 
     } catch (e) {
       console.error("direction 실패", e);
       return res.json({ response: { header: { resultCode: "99", resultMsg: "방면 정보를 가져오지 못했습니다" } } });
+    }
+  }
+  if (opName === "locate") {
+    const cityCode = String(req.query.cityCode || ""), nodeId = String(req.query.nodeid || ""), nodeNm = String(req.query.nodenm || "");
+    res.set("Cache-Control", "no-store");
+    if (!cityCode || !nodeId || !nodeNm) return res.status(400).json({ error: "cityCode, nodeid, nodenm 필요" });
+    try {
+      const v = await locateOf(cityCode, nodeId, nodeNm);
+      return res.json({ response: { header: { resultCode: "00" }, body: { items: { item: [v] } } } });
+    } catch (e) {
+      console.error("locate 실패", e);
+      return res.json({ response: { header: { resultCode: "99", resultMsg: "정류장 위치의 시·군을 확인하지 못했습니다" } } });
     }
   }
   if (opName === "twins") {

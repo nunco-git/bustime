@@ -298,6 +298,7 @@ function stopOut(s) {
   var o = { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
     nodenm: String(s.nodenm), nodeno: String(s.nodeno == null ? "" : s.nodeno) };
   if (s.home) o.home = String(s.home);
+  if (s.hm) o.hm = 1;
   if (s.twins && Object.prototype.toString.call(s.twins) === "[object Array]") {
     o.twins = [];
     for (var i = 0; i < s.twins.length && i < 3; i++) o.twins.push(twinOut(s.twins[i]));

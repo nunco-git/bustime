@@ -417,7 +417,7 @@ function applyRemote(d) {
           rep: Number(d.rep) || 1, gap: Number(d.gap) || 60, stop: d.stop || null };
   lsSet("acctCfg", CFG);
   if (d.scale) setScale(d.scale, true);
-  if (Array.isArray(d.favStops)) { lsSet("busFavs", d.favStops); renderFavs(); }
+  if (Array.isArray(d.favStops)) { lsSet("busFavs", d.favStops); renderFavs(); migrateHomes(); }
   if (Array.isArray(d.favCities)) {
     lsSet("busFavCities", d.favCities);
     if (d.favCities.length) { lsSet("fcAsked", true); $("fcModal").hidden = true; }   // 이미 정해 둔 계정이면 처음 팝업 생략
@@ -531,7 +531,8 @@ const twinOut = t => ({ cityCode: String(t.cityCode), cityName: String(t.cityNam
 const stopOut = s => {
   const o = { cityCode: String(s.cityCode), cityName: String(s.cityName || ""), nodeid: String(s.nodeid),
     nodenm: String(s.nodenm), nodeno: String(s.nodeno ?? "") };
-  if (s.home) o.home = String(s.home);       // 즐겨찾기 목록에서 어느 시·군 아래에 둘지 (정류장이 실제 있는 곳)
+  if (s.home) o.home = String(s.home);
+  if (s.hm) o.hm = 1;                        // 사용자가 직접 고른 시·군(자동 확인이 바꾸지 않음)       // 즐겨찾기 목록에서 어느 시·군 아래에 둘지 (정류장이 실제 있는 곳)
   if (Array.isArray(s.twins)) o.twins = s.twins.slice(0, 3).map(twinOut);   // 같은 자리의 다른 시·군 정류장 (도착정보를 합쳐서 보여 줌)
   return o;
 };
@@ -544,6 +545,41 @@ const saveFavs = f => {
   else if (acctOn) cloudWrite({ favStops: out });
 };
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
+
+// 정류장 좌표가 실제로 속한 시·군을 서버에서 확인해 목록 시·군(home)으로 정함. 직접 고른 것(hm)은 건드리지 않음
+const homeTried = {};
+function cityCodeByGeo(a) {
+  const nz = x => String(x).replace(/\s/g, "");
+  const names = [a.county, a.city, a.district, a.state].filter(Boolean).map(nz);
+  for (const n of names) { const c = cityList.find(x => nz(x.name) === n); if (c) return c.code; }
+  for (const n of names) { const c = cityList.find(x => n.startsWith(nz(x.name)) || nz(x.name).startsWith(n)); if (c) return c.code; }
+  return "";
+}
+async function autoHome(stop, go) {
+  const k = String(stop.cityCode) + ":" + String(stop.nodeid);
+  if (stop.hm || homeTried[k] || !cityList.length) return;
+  homeTried[k] = 1;
+  let code = "";
+  try {
+    const r = await call("locate", { cityCode: stop.cityCode, nodeid: stop.nodeid, nodenm: stop.nodenm });
+    code = r[0] ? cityCodeByGeo(r[0]) : "";
+  } catch (e) { return; }
+  if (!code) return;
+  const f = favs(), s = f.find(x => sameStop(x, stop));
+  if (!s || s.hm) return;
+  if (String(s.home || "") === code) return;
+  s.home = code; stop.home = code;
+  saveFavs(f);
+  if (go) pickCity(code); else renderFavs();
+}
+// 이미 담긴 즐겨찾기 중 위치를 아직 확인하지 않은 것을 한 번씩 차례로 확인
+let homeMigrating = false;
+async function migrateHomes() {
+  if (homeMigrating || !cityList.length) return;
+  homeMigrating = true;
+  for (const s of favs().filter(x => !x.home && !x.hm)) { await autoHome(s, false); await new Promise(r => setTimeout(r, 1100)); }
+  homeMigrating = false;
+}
 
 // 즐겨찾기 정류장을 어느 시·군 목록에 둘지 고르는 선택지: 정류장 자료의 시·군, 지금 보는 시·군, 즐겨찾는 시·군
 function homeOpts(s) {
@@ -606,6 +642,7 @@ async function loadCities() {
     provList = provs;
     if (start) { $("prov").value = start.prov; fillCities(start.code); }
     initFavCities();
+    migrateHomes();
   } catch (e) { $("city").innerHTML = `<option>도시 목록 오류: ${e.message}</option>`; }
 }
 
@@ -990,6 +1027,7 @@ function mapPopup(stop) {
       if (fav) f = f.filter(x => !(String(x.nodeid) === stop.nodeid && String(x.cityCode) === stop.cityCode));
       else { f.push(stop); pickCity(favHome(stop)); }
       saveFavs(f); renderFavs(); draw();
+      if (!fav) autoHome(stop, true);
     };
     row.append(b1, b2);
   };
@@ -1207,7 +1245,7 @@ function alarmBus(no, o) {
   const st = current;
   if (!st) return;
   const stop = stopOut(st);
-  if (o && !isFav(stop)) { const f = favs(); f.push(stop); saveFavs(f); renderFavs(); if (window._stops) renderStops(); }
+  if (o && !isFav(stop)) { const f = favs(); f.push(stop); saveFavs(f); renderFavs(); if (window._stops) renderStops(); autoHome(stop, false); }
   const same = sameStop(CFG.stop, stop);
   const sel = same ? selBusList() : [];                    // 다른 정류장이면 새로 시작
   const bset = same ? { ...(CFG.bset || {}) } : {};
@@ -1522,6 +1560,7 @@ document.addEventListener("click", e => {
     const added = f.length === favs().length;
     if (added) f.push(s);   // 없었으면 추가, 있었으면 해제
     saveFavs(f); renderFavs();
+    if (added) autoHome(s, true);     // 정류장이 실제 있는 시·군을 확인해 그 시·군 즐겨찾기로
     if (added) {            // 추가하면 검색 결과는 닫고 즐겨찾기에서 보이게 함
       window._stops = null; $("stops").innerHTML = ""; $("stopsBox").style.display = "none"; $("q").value = "";
       $("favBox").scrollIntoView && $("favBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1536,7 +1575,7 @@ document.addEventListener("change", e => {
   if (!sel) return;
   const f = favs(), s = f[Number(sel.dataset.home)];
   if (!s) return;
-  s.home = sel.value;
+  s.home = sel.value; s.hm = 1;
   saveFavs(f);
   pickCity(sel.value);       // 그 시·군 목록으로 바로 이동해서 확인할 수 있게
 });
@@ -1611,7 +1650,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v47 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v48 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
