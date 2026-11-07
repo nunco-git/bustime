@@ -136,11 +136,7 @@ async function stopCoord(cityCode, nodeId, nodeNm) {
 }
 // 좌표가 실제로 속한 시·군을 찾는다 (브이월드 우선, 안 되면 OpenStreetMap. 결과는 오래 보관)
 const GEO_TTL = 30 * 24 * 60 * 60 * 1000;
-async function locateOf(cityCode, nodeId, nodeNm) {
-  const key = "lc|" + cityCode + "|" + nodeId;
-  const hit = dirCache.get(key);
-  if (hit && Date.now() - hit.t < GEO_TTL) return hit.v;
-  const { la, lo } = await stopCoord(cityCode, nodeId, nodeNm);
+async function geoOf(la, lo) {
   const gk = "gc|" + la.toFixed(3) + "|" + lo.toFixed(3);       // 가까운 정류장끼리는 같은 결과를 재사용
   let a = (dirCache.get(gk) || {}).v, src = a ? a._src : "", why = a ? a._why : "";
   if (!a) {                                   // 1) 국토부 브이월드 (국내 행정구역 기준, 더 정확)
@@ -164,17 +160,36 @@ async function locateOf(cityCode, nodeId, nodeNm) {
     u.searchParams.set("format", "jsonv2"); u.searchParams.set("lat", String(la)); u.searchParams.set("lon", String(lo));
     u.searchParams.set("zoom", "10"); u.searchParams.set("addressdetails", "1"); u.searchParams.set("accept-language", "ko");
     const r = await fetch(u, { headers: { "User-Agent": "bustime-bus-app/1.0 (elder bus arrival helper)" } });
-    if (!r.ok) throw new Error("위치 조회 실패 " + r.status);
+    if (!r.ok) throw new Error((why ? why + " / " : "") + "OSM 조회 실패 " + r.status);
     const j = await r.json();
     a = j && j.address;
-    if (!a) throw new Error("위치 정보 없음");
+    if (!a) throw new Error((why ? why + " / " : "") + "OSM 위치 정보 없음");
     src = "osm";
   }
   a._src = src; a._why = why;
   dirCache.set(gk, { t: Date.now(), v: a });
-  const v = { county: a.county || "", city: a.city || a.town || a.municipality || "", district: a.city_district || "", state: a.state || a.province || "", src, why };
+  return { county: a.county || "", city: a.city || a.town || a.municipality || "", district: a.city_district || "", state: a.state || a.province || "", src, why };
+}
+async function locateOf(cityCode, nodeId, nodeNm) {
+  const key = "lc|" + cityCode + "|" + nodeId;
+  const hit = dirCache.get(key);
+  if (hit && Date.now() - hit.t < GEO_TTL) return hit.v;
+  const { la, lo } = await stopCoord(cityCode, nodeId, nodeNm);
+  const v = await geoOf(la, lo);
   dirCache.set(key, { t: Date.now(), v });
   return v;
+}
+// 정류장 ID를 모를 때: 이름으로 찾은 정류장들의 위치 시·군을 한꺼번에 (확인용)
+async function locateByName(cityCode, nodeNm) {
+  const list = asItems(await tagoJson("BusSttnInfoInqireService/getSttnNoList", { cityCode, nodeNm }, 100)).slice(0, 5);
+  const out = [];
+  for (const x of list) {
+    const la = Number(x.gpslati), lo = Number(x.gpslong);
+    if (isNaN(la) || isNaN(lo)) { out.push({ nodeid: String(x.nodeid), nodenm: String(x.nodenm), error: "좌표 없음" }); continue; }
+    try { out.push({ nodeid: String(x.nodeid), nodenm: String(x.nodenm), lat: la, lng: lo, ...(await geoOf(la, lo)) }); }
+    catch (e) { out.push({ nodeid: String(x.nodeid), nodenm: String(x.nodenm), error: e.message }); }
+  }
+  return out;
 }
 async function twinsOf(cityCode, nodeId, nodeNm) {
   const key = "tw|" + cityCode + "|" + nodeId;
@@ -218,13 +233,13 @@ exports.bus = onRequest({ secrets: [TAGO_KEY, VWORLD_KEY], region: "asia-northea
   if (opName === "locate") {
     const cityCode = String(req.query.cityCode || ""), nodeId = String(req.query.nodeid || ""), nodeNm = String(req.query.nodenm || "");
     res.set("Cache-Control", "no-store");
-    if (!cityCode || !nodeId || !nodeNm) return res.status(400).json({ error: "cityCode, nodeid, nodenm 필요" });
+    if (!cityCode || !nodeNm) return res.status(400).json({ error: "cityCode, nodenm 필요" });
     try {
-      const v = await locateOf(cityCode, nodeId, nodeNm);
-      return res.json({ response: { header: { resultCode: "00" }, body: { items: { item: [v] } } } });
+      const v = nodeId ? [await locateOf(cityCode, nodeId, nodeNm)] : await locateByName(cityCode, nodeNm);   // nodeid 없으면 이름으로 확인용 조회
+      return res.json({ response: { header: { resultCode: "00" }, body: { items: { item: v } } } });
     } catch (e) {
       console.error("locate 실패", e);
-      return res.json({ response: { header: { resultCode: "99", resultMsg: "정류장 위치의 시·군을 확인하지 못했습니다" } } });
+      return res.json({ response: { header: { resultCode: "99", resultMsg: "위치 확인 실패: " + e.message } } });
     }
   }
   if (opName === "twins") {

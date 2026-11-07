@@ -547,7 +547,7 @@ const saveFavs = f => {
 const isFav = s => favs().some(x => x.nodeid === s.nodeid && x.cityCode === s.cityCode);
 
 // 정류장 좌표가 실제로 속한 시·군을 서버에서 확인해 목록 시·군(home)으로 정함. 직접 고른 것(hm)은 건드리지 않음
-const homeTried = {};
+const homeTried = {}, homeInfo = {};   // homeInfo: 정류장별 위치 확인 결과(화면 표시용)
 function cityCodeByGeo(a) {
   const nz = x => String(x).replace(/\s/g, "");
   const names = [a.county, a.city, a.district, a.state].filter(Boolean).map(nz);
@@ -563,8 +563,10 @@ async function autoHome(stop, go) {
   try {
     const r = await call("locate", { cityCode: stop.cityCode, nodeid: stop.nodeid, nodenm: stop.nodenm });
     code = r[0] ? cityCodeByGeo(r[0]) : "";
-  } catch (e) { return; }
-  if (!code) return;
+    const nm = r[0] ? (r[0].county || r[0].city || r[0].state) : "";
+    homeInfo[k] = code ? "위치 확인: " + nm + (r[0].src === "vworld" ? " (브이월드)" : " (OSM)") : "위치 확인: '" + nm + "'에 해당하는 시·군을 목록에서 못 찾음";
+  } catch (e) { homeInfo[k] = "위치 확인 실패: " + e.message; renderFavs(); return; }
+  if (!code) { renderFavs(); return; }
   const f = favs(), s = f.find(x => sameStop(x, stop));
   if (!s || s.hm) return;
   if (String(s.home || "") === code) return;
@@ -600,7 +602,8 @@ function renderFavs() {
   setTimeout(() => fillDirs($("favs")), 0);
   $("favs").innerHTML = rows.map(({ s, i }) =>
     `<div class="stop"><div><b>${s.nodenm}</b><br><small>${s.cityName} · ${s.nodeno ?? ""}</small><div class="dir" data-dir="${s.cityCode}:${s.nodeid}"></div>
-       <small>목록 시·군 <select class="homeSel" data-home="${i}">${homeOpts(s)}</select></small></div>
+       <small>목록 시·군 <select class="homeSel" data-home="${i}">${homeOpts(s)}</select></small>
+       <div><small>${s.hm ? "직접 선택함" : (homeInfo[s.cityCode + ":" + s.nodeid] || "")}</small></div></div>
      <div class="btns"><button data-fav="${i}">보기</button> <button class="ghost" data-del="${i}">삭제</button></div></div>`).join("");
 }
 
@@ -1650,7 +1653,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v48 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v49 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();
