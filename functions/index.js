@@ -142,7 +142,7 @@ async function locateOf(cityCode, nodeId, nodeNm) {
   if (hit && Date.now() - hit.t < GEO_TTL) return hit.v;
   const { la, lo } = await stopCoord(cityCode, nodeId, nodeNm);
   const gk = "gc|" + la.toFixed(3) + "|" + lo.toFixed(3);       // 가까운 정류장끼리는 같은 결과를 재사용
-  let a = (dirCache.get(gk) || {}).v;
+  let a = (dirCache.get(gk) || {}).v, src = a ? a._src : "", why = a ? a._why : "";
   if (!a) {                                   // 1) 국토부 브이월드 (국내 행정구역 기준, 더 정확)
     try {
       const k = VWORLD_KEY.value();
@@ -154,9 +154,10 @@ async function locateOf(cityCode, nodeId, nodeNm) {
         const r = await fetch(u);
         const j = await r.json();
         const st = j && j.response && j.response.status === "OK" && j.response.result && j.response.result[0] && j.response.result[0].structure;
-        if (st && st.level2) a = { county: st.level2, city: "", city_district: "", state: st.level1 || "" };
-      }
-    } catch (e) { console.error("브이월드 실패, 다른 방법으로", e.message); }
+        if (st && st.level2) { a = { county: st.level2, city: "", city_district: "", state: st.level1 || "" }; src = "vworld"; }
+        else why = "브이월드: " + String((j && j.response && (j.response.status + " " + JSON.stringify(j.response.error || ""))) || "응답 이상").slice(0, 160);
+      } else why = "브이월드 키 없음";
+    } catch (e) { why = "브이월드 오류: " + e.message; console.error(why); }
   }
   if (!a) {                                   // 2) 못 쓰면 OpenStreetMap
     const u = new URL("https://nominatim.openstreetmap.org/reverse");
@@ -167,9 +168,11 @@ async function locateOf(cityCode, nodeId, nodeNm) {
     const j = await r.json();
     a = j && j.address;
     if (!a) throw new Error("위치 정보 없음");
+    src = "osm";
   }
+  a._src = src; a._why = why;
   dirCache.set(gk, { t: Date.now(), v: a });
-  const v = { county: a.county || "", city: a.city || a.town || a.municipality || "", district: a.city_district || "", state: a.state || a.province || "" };
+  const v = { county: a.county || "", city: a.city || a.town || a.municipality || "", district: a.city_district || "", state: a.state || a.province || "", src, why };
   dirCache.set(key, { t: Date.now(), v });
   return v;
 }
