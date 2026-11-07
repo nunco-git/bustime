@@ -1101,7 +1101,10 @@ async function showArrivals(stop) {
 }
 
 // 같은 자리의 다른 시·군 정류장(이름 같고 약 100m 이내)을 한 번 찾아 두고, 도착정보를 합쳐서 보여 줌
-const twinList = st => (st && Array.isArray(st.twins) ? st.twins : []);
+const twinList = st => {      // 시·군마다 한 곳만 (이미 저장된 예전 묶음에 같은 시·군이 둘 있어도 하나로)
+  const seen = {};
+  return st && Array.isArray(st.twins) ? st.twins.filter(t => (seen[t.cityCode] ? false : (seen[t.cityCode] = true))) : [];
+};
 function paintTwins(st) {
   const t = twinList(st);
   $("arrTwin").textContent = t.length ? "같은 자리 " + t.map(x => x.cityName || "다른 시·군").join(", ") + " 정류장과 함께 표시" : "";
@@ -1567,7 +1570,7 @@ if (NATIVE) $("alertNote").textContent =
   const v = document.createElement("div");
   v.className = "sub";
   v.style.cssText = "text-align:center;font-size:.6rem;opacity:.6;margin:8px 0 16px";
-  v.textContent = "v42 · 앱 연결: " + (NATIVE ? "예" : "아니오");
+  v.textContent = "v43 · 앱 연결: " + (NATIVE ? "예" : "아니오");
   document.querySelector(".wrap").appendChild(v);
 }
 renderFavs();

@@ -134,7 +134,8 @@ async function twinsOf(cityCode, nodeId, nodeNm) {
     if (same && d <= 100) out.push({ cityCode: cc, nodeid: String(x.nodeid), nodenm: String(x.nodenm), nodeno: String(x.nodeno == null ? "" : x.nodeno), dist: Math.round(d) });
   }
   out.sort((a, b) => a.dist - b.dist);
-  const v = out.slice(0, 3);
+  // 시·군마다 가장 가까운 한 곳만 (같은 시·군의 반대편 정류장까지 합치면 방향이 섞임)
+  const seen = {}, v = out.filter(x => (seen[x.cityCode] ? false : (seen[x.cityCode] = true))).slice(0, 3);
   dirCache.set(key, { t: Date.now(), v });
   return v;
 }

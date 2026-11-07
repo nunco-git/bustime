@@ -182,7 +182,7 @@
     </div>
 
     <div class="sub" style="text-align:center">
-      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v17 · 앱 연결: <span id="nat"></span>
+      <a href="/">전체 화면(지도 포함)으로 보기</a> · lite v18 · 앱 연결: <span id="nat"></span>
     </div>
   </div>
 </div>
@@ -288,7 +288,12 @@ function stopOut(s) {
 function twinOut(t) {
   return { cityCode: String(t.cityCode), cityName: String(t.cityName || ""), nodeid: String(t.nodeid), nodeno: String(t.nodeno == null ? "" : t.nodeno) };
 }
-function twinList(st) { return st && st.twins && Object.prototype.toString.call(st.twins) === "[object Array]" ? st.twins : []; }
+function twinList(st) {      // 시·군마다 한 곳만 (이미 저장된 예전 묶음에 같은 시·군이 둘 있어도 하나로)
+  var out = [], seen = {}, i, t;
+  if (!st || !st.twins || Object.prototype.toString.call(st.twins) !== "[object Array]") return out;
+  for (i = 0; i < st.twins.length; i++) { t = st.twins[i]; if (!seen[t.cityCode]) { seen[t.cityCode] = true; out.push(t); } }
+  return out;
+}
 function saveFavs(f) {
   lsSet("busFavs", f);
   var out = f.map(stopOut), keep = true, i;
