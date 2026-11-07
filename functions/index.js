@@ -2,6 +2,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 
+const VWORLD_KEY = defineSecret("VWORLD_KEY"); // firebase functions:secrets:set VWORLD_KEY (국토부 브이월드 인증키, 정류장 위치의 시·군 확인용)
 const TAGO_KEY = defineSecret("TAGO_KEY"); // firebase functions:secrets:set TAGO_KEY (일반 인증키 Decoding 값)
 
 const BASE = "https://apis.data.go.kr/1613000";
@@ -133,7 +134,7 @@ async function stopCoord(cityCode, nodeId, nodeNm) {
   if (isNaN(la) || isNaN(lo)) throw new Error("정류장 좌표가 없습니다");
   return { la, lo, nm: found.nodenm };
 }
-// 좌표가 실제로 속한 시·군을 찾는다 (OpenStreetMap 행정구역, 열쇠 없이 가볍게 사용, 결과는 오래 보관)
+// 좌표가 실제로 속한 시·군을 찾는다 (브이월드 우선, 안 되면 OpenStreetMap. 결과는 오래 보관)
 const GEO_TTL = 30 * 24 * 60 * 60 * 1000;
 async function locateOf(cityCode, nodeId, nodeNm) {
   const key = "lc|" + cityCode + "|" + nodeId;
@@ -142,7 +143,22 @@ async function locateOf(cityCode, nodeId, nodeNm) {
   const { la, lo } = await stopCoord(cityCode, nodeId, nodeNm);
   const gk = "gc|" + la.toFixed(3) + "|" + lo.toFixed(3);       // 가까운 정류장끼리는 같은 결과를 재사용
   let a = (dirCache.get(gk) || {}).v;
-  if (!a) {
+  if (!a) {                                   // 1) 국토부 브이월드 (국내 행정구역 기준, 더 정확)
+    try {
+      const k = VWORLD_KEY.value();
+      if (k) {
+        const u = new URL("https://api.vworld.kr/req/address");
+        u.searchParams.set("service", "address"); u.searchParams.set("request", "getAddress"); u.searchParams.set("version", "2.0");
+        u.searchParams.set("crs", "epsg:4326"); u.searchParams.set("point", lo + "," + la); u.searchParams.set("format", "json");
+        u.searchParams.set("type", "parcel"); u.searchParams.set("key", k); u.searchParams.set("domain", "bustime-c4cfd.web.app");
+        const r = await fetch(u);
+        const j = await r.json();
+        const st = j && j.response && j.response.status === "OK" && j.response.result && j.response.result[0] && j.response.result[0].structure;
+        if (st && st.level2) a = { county: st.level2, city: "", city_district: "", state: st.level1 || "" };
+      }
+    } catch (e) { console.error("브이월드 실패, 다른 방법으로", e.message); }
+  }
+  if (!a) {                                   // 2) 못 쓰면 OpenStreetMap
     const u = new URL("https://nominatim.openstreetmap.org/reverse");
     u.searchParams.set("format", "jsonv2"); u.searchParams.set("lat", String(la)); u.searchParams.set("lon", String(lo));
     u.searchParams.set("zoom", "10"); u.searchParams.set("addressdetails", "1"); u.searchParams.set("accept-language", "ko");
@@ -151,8 +167,8 @@ async function locateOf(cityCode, nodeId, nodeNm) {
     const j = await r.json();
     a = j && j.address;
     if (!a) throw new Error("위치 정보 없음");
-    dirCache.set(gk, { t: Date.now(), v: a });
   }
+  dirCache.set(gk, { t: Date.now(), v: a });
   const v = { county: a.county || "", city: a.city || a.town || a.municipality || "", district: a.city_district || "", state: a.state || a.province || "" };
   dirCache.set(key, { t: Date.now(), v });
   return v;
@@ -182,7 +198,7 @@ async function twinsOf(cityCode, nodeId, nodeNm) {
   return v;
 }
 
-exports.bus = onRequest({ secrets: [TAGO_KEY], region: "asia-northeast3", cors: true }, async (req, res) => {
+exports.bus = onRequest({ secrets: [TAGO_KEY, VWORLD_KEY], region: "asia-northeast3", cors: true }, async (req, res) => {
   const opName = String(req.query.op);
   if (opName === "direction") {
     const cityCode = String(req.query.cityCode || ""), nodeId = String(req.query.nodeId || "");
